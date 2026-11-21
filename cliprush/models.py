@@ -1,4 +1,4 @@
-"""Persistent state. New installations use create_all; migrations required on schema upgrades."""
+"""SQLAlchemy state. PostgreSQL upgrades use Alembic; never create_all in production."""
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
@@ -48,6 +48,7 @@ class Recording(Base):
     status: Mapped[str] = mapped_column(String(32), default="queued")
     openshorts_job_id: Mapped[str | None] = mapped_column(String(128), unique=True)
     error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     program: Mapped[Program] = relationship()
 
@@ -68,6 +69,7 @@ class Moment(Base):
     hook: Mapped[str] = mapped_column(Text, default="")
     transcript: Mapped[str] = mapped_column(Text, default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class Clip(Base):
@@ -87,6 +89,7 @@ class Clip(Base):
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     publish_response: Mapped[dict | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     recording: Mapped[Recording] = relationship()
 
@@ -115,6 +118,8 @@ class Post(Base):
     post_url: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default="queued")
     error: Mapped[str] = mapped_column(Text, default="")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account: Mapped[Account] = relationship()
@@ -186,3 +191,12 @@ class Expense(Base):
     amount_cents: Mapped[int] = mapped_column(Integer)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class RuntimeControl(Base):
+    """A persisted emergency pause; cannot override ENABLE_PUBLISH=false."""
+    __tablename__ = "runtime_controls"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)

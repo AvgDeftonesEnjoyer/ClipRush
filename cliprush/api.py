@@ -210,6 +210,26 @@ def candidate_decision(candidate_id: int, body: CandidateDecision, db: Session =
     return {"id": item.id, "status": item.status}
 
 
+class PublishPauseIn(BaseModel):
+    paused: bool
+    reason: str = Field(default="", max_length=500)
+
+
+@app.get("/controls/publishing", dependencies=[Depends(admin)])
+def get_publishing_control(db: Session = Depends(db_session)):
+    from cliprush.control import publishing_paused
+    return {"enabled_in_config": get_settings().enable_publish,
+            "paused": publishing_paused(db)}
+
+
+@app.post("/controls/publishing", dependencies=[Depends(admin)])
+def update_publishing_control(body: PublishPauseIn, db: Session = Depends(db_session)):
+    from cliprush.control import set_publishing_pause
+    record = set_publishing_pause(db, body.paused, body.reason)
+    return {"paused": record.paused, "reason": record.reason,
+            "enabled_in_config": get_settings().enable_publish}
+
+
 @app.get("/readiness", dependencies=[Depends(admin)])
 def readiness():
     cfg = get_settings()

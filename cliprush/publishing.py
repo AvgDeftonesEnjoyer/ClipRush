@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_, and_
 from sqlalchemy.orm import Session
 
 from cliprush.config import get_settings
@@ -26,16 +26,17 @@ def quota_error(db: Session, account: Account, urgent: bool = False) -> str | No
     if not account.enabled or account.paused:
         return "Account disabled or paused"
     current = now()
+    attempted_at = func.coalesce(Post.sent_at, Post.created_at)
     recent = list(db.scalars(select(Post).where(
         Post.account_id == account.id,
-        Post.created_at >= current - timedelta(hours=24),
-        Post.status.in_(["sending", "submitted", "published", "unknown"]),
-    ).order_by(Post.created_at.desc())))
+        attempted_at >= current - timedelta(hours=24),
+        Post.status.in_(["preparing", "sending", "submitted", "published", "unknown"]),
+    ).order_by(attempted_at.desc())))
     new = (current - utc(account.created_at)) < timedelta(days=7)
     limit = cfg.max_post_day_new if new else cfg.max_post_day_established
     if len(recent) >= limit:
         return f"24h account quota reached ({limit})"
-    if recent and not urgent and (current - utc(recent[0].created_at)).total_seconds() < cfg.min_post_gap_seconds:
+    if recent and (current - utc(recent[0].sent_at or recent[0].created_at)).total_seconds() < cfg.min_post_gap_seconds:
         return "Minimum account gap not elapsed"
     return None
 
@@ -105,6 +106,12 @@ def dispatch(db: Session, post_id: int) -> str:
         return post.status
     if not get_settings().enable_publish:
         return "disabled"
+    from cliprush.control import publishing_paused
+    if publishing_paused(db):
+        post.status = "deferred"
+        post.error = "Emergency publishing pause is active"
+        db.commit()
+        return post.status
     from cliprush.budget import within_budget
     if not within_budget(db):
         post.status = "deferred"
@@ -126,20 +133,36 @@ def dispatch(db: Session, post_id: int) -> str:
         post.error = error
         db.commit()
         return post.status
-    urgent = bool(post.clip.recording.local_path)
-    reason = quota_error(db, post.account, urgent=urgent)
+    # Serialize quota checks across simultaneous requests to the same account.
+    # PostgreSQL row lock is held until the preparing reservation commits.
+    db.scalar(select(Account).where(Account.id == post.account_id).with_for_update())
+    reason = quota_error(db, post.account)
     if reason:
         post.status = "deferred"
         post.error = reason
         db.commit()
         return post.status
     post.status = "preparing"
+    post.sent_at = now()
     db.commit()
     try:
         local = fetch_clip(post.clip.video_url, post.clip.id)
     except Exception as error:
         post.status = "blocked"
         post.error = "Media unavailable: " + str(error)[:300]
+        db.commit()
+        return post.status
+    # Re-evaluate owner safety gates after the long media download.
+    db.refresh(post)
+    if (publishing_paused(db) or not get_settings().enable_publish
+            or post.account.paused or not post.account.enabled
+            or not post.clip.safety_checked or post.clip.status != "approved"
+            or post.clip.safety_status == "blocked"
+            or not post.clip.recording.program.enabled
+            or not post.clip.recording.program.rights_confirmed
+            or rule_error(post.clip, post.account)):
+        post.status = "blocked"
+        post.error = "Publishing gate changed after media preparation"
         db.commit()
         return post.status
     # Durable reservation BEFORE the external network operation.
