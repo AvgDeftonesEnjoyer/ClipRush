@@ -1,4 +1,5 @@
 """ClipRush owner API and signed provider webhooks."""
+import asyncio
 import hmac
 import json
 import re
@@ -418,7 +419,7 @@ async def kick_hook(request: Request, db: Session = Depends(db_session)):
     if len(raw) > 100_000:
         raise HTTPException(413, "Event too large")
     try:
-        await __import__("asyncio").to_thread(verify_kick_signature, raw, request.headers)
+        await asyncio.to_thread(verify_kick_signature, raw, request.headers)
     except ValueError:
         raise HTTPException(401, "Invalid Kick signature or replay timestamp")
     try:

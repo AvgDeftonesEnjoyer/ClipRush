@@ -34,9 +34,9 @@ API Docs: **http://localhost:8080/docs**. Админ-запросы: `Authorizat
 
 ### Kick и YouTube Live
 
-**Kick:** создай Kick Developer App, включи публичный HTTPS webhook \`https://<domain>/hooks/kick\` в настройках приложения, настрой официальный app token и подпишись на \`chat.message.sent\` и \`livestream.status.updated\` для **разрешённых** \`broadcaster_user_id\`. После этого поставь \`KICK_WEBHOOKS_ENABLED=true\`, добавь стримера с \`platform=kick\`, \`channel=<kick-slug>\`. Сервер проверяет RSA-подпись, timestamp и ID сообщений и принимает сигналы только из зарегистрированных разрешённых программ. Если callback не приходит, запись не стартует. Streamlink может запрашивать обычный браузер для JS-проверки Kick; обход защиты не предусмотрен.
+**Kick:** создай Kick Developer App, включи публичный HTTPS webhook `https://<domain>/hooks/kick` в настройках приложения, настрой официальный app token и подпишись на `chat.message.sent` и `livestream.status.updated` для **разрешённых** `broadcaster_user_id`. После этого поставь `KICK_WEBHOOKS_ENABLED=true`, добавь стримера с `platform=kick`, `channel=<kick-slug>`. Сервер проверяет RSA-подпись, timestamp и ID сообщений и принимает сигналы только из зарегистрированных разрешённых программ. Если callback не приходит, запись не стартует. Streamlink может запрашивать обычный браузер для JS-проверки Kick; обход защиты не предусмотрен.
 
-**YouTube:** создай API key с доступом к YouTube Data API v3 и положи его в \`YOUTUBE_API_KEY\`. Зарегистрируй стрим с \`platform=youtube\`, \`channel=<11-char-video-id>\` (именно идентификатор текущего live-видео, не @handle). Поллинг использует \`videos.list\` и \`liveChatMessages.list\` с учётом \`pollingIntervalMillis\`; разрешённые записи читает Streamlink. При смене live video ID потребуется обновить запись стримера. API quota и права доступа зависят от Google-проекта.
+**YouTube:** создай API key с доступом к YouTube Data API v3 и положи его в `YOUTUBE_API_KEY`. Зарегистрируй стрим с `platform=youtube`, `channel=<11-char-video-id>` (именно идентификатор текущего live-видео, не @handle). Поллинг использует `videos.list` и `liveChatMessages.list` с учётом `pollingIntervalMillis`; разрешённые записи читает Streamlink. При смене live video ID потребуется обновить запись стримера. API quota и права доступа зависят от Google-проекта.
 
 Официальные источники: [Kick webhooks](https://github.com/KickEngineering/KickDevDocs/blob/main/events/webhook-security.md), [Kick event types](https://github.com/KickEngineering/KickDevDocs/blob/main/events/event-types.md), [YouTube Live chat](https://developers.google.com/youtube/data/live/streaming-live-chat), [Streamlink plugins](https://streamlink.github.io/plugins.html).
 
@@ -77,9 +77,9 @@ curl -X POST "$API/recordings" -H "Authorization: Bearer $TOKEN" -H "Content-Typ
 
 ### Версии Detect-промптов и эксперименты
 
-Раз в воскресенье, **только при наличии 100+ клипов с пригодными 72-часовыми измерениями**, агент создаёт один проект изменения текста Detect-промпта для недельной гипотезы «хук-вопрос против утверждения». В Telegram-отчёте появляются кнопки «Принять / Отклонить промпт». До подтверждения используется прежний промпт. История хранится в \`prompt_versions\`; откат — повторно активировать предыдущую версию.
+Раз в воскресенье, **только при наличии 100+ клипов с пригодными 72-часовыми измерениями**, агент создаёт один проект изменения текста Detect-промпта для недельной гипотезы «хук-вопрос против утверждения». В Telegram-отчёте появляются кнопки «Принять / Отклонить промпт». До подтверждения используется прежний промпт. История хранится в `prompt_versions`; откат — повторно активировать предыдущую версию.
 
-Через API: \`GET /prompts\`, \`POST /prompts\`, \`POST /prompts/{id}/activate\` с \`{"confirmation":"ACTIVATE"}\`, \`POST /prompts/{id}/reject\`. Самомодификации фильтра безопасности нет. Гипотеза оформляется как предложение, **результат A/B не считается доказанным без настоящих контрольных групп и измерений**.
+Через API: `GET /prompts`, `POST /prompts`, `POST /prompts/{id}/activate` с `{"confirmation":"ACTIVATE"}`, `POST /prompts/{id}/reject`. Самомодификации фильтра безопасности нет. Гипотеза оформляется как предложение, **результат A/B не считается доказанным без настоящих контрольных групп и измерений**.
 
 ### Расходы и выплаты
 
