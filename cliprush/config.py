@@ -13,7 +13,27 @@ class Settings(BaseSettings):
     openshorts_webhook_secret: str = ""
     public_base_url: str = ""
     enable_publish: bool = False
-    request_timeout_seconds: float = 30
+    auto_publish_on_approval: bool = False
+    request_timeout_seconds: float = 60
+    telegram_bot_token: str = ""
+    telegram_owner_id: int = 0
+    telegram_webhook_secret: str = ""
+    twitch_client_id: str = ""
+    twitch_client_secret: str = ""
+    twitch_bot_nick: str = ""
+    twitch_bot_oauth: str = ""
+    openrouter_api_key: str = ""
+    openrouter_model: str = ""
+    openrouter_vision_model: str = ""
+    acoustid_api_key: str = ""
+    upload_post_api_key: str = ""
+    data_dir: str = "/data"
+    scout_interval_seconds: int = 60
+    min_post_gap_seconds: int = 7200
+    max_post_day_new: int = 2
+    max_post_day_established: int = 5
+    max_download_bytes: int = 250_000_000
+    budget_limit_usd: float = 80
 
 
 @lru_cache

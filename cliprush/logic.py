@@ -9,11 +9,12 @@ from cliprush.models import Clip, Recording
 
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "www.twitch.tv", "twitch.tv", "kick.com", "www.kick.com"}
 ALLOWED_PLATFORMS = {"youtube", "tiktok", "instagram"}
+STYLES = ("classic", "dark", "yellow", "red", "pill", "outline")
 
 
 def validate_source_url(value: str) -> str:
     parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS or parsed.username or parsed.password:
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS or parsed.username or parsed.password or parsed.port:
         raise ValueError("Use an HTTPS URL from an allowed video host")
     return value
 
@@ -23,6 +24,18 @@ def valid_webhook(body: bytes, signature: str | None, secret: str) -> bool:
         return False
     expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def choose_style(session: Session, recording: Recording) -> str:
+    last_styles = [
+        x.style for x in session.scalars(select(Clip).join(Recording).where(
+            Recording.program_id == recording.program_id
+        ).order_by(Clip.id.desc()).limit(5))
+    ]
+    for style in STYLES:
+        if style not in last_styles:
+            return style
+    return STYLES[len(last_styles) % len(STYLES)]
 
 
 def apply_completed_job(session: Session, recording: Recording, payload: dict) -> int:
@@ -46,6 +59,7 @@ def apply_completed_job(session: Session, recording: Recording, payload: dict) -
             clip_index=index,
             title=str(data.get("title") or data.get("video_title_for_youtube_short") or ""),
             video_url=str(data.get("download_url") or data.get("video_url") or ""),
+            style=choose_style(session, recording),
         ))
         created += 1
     recording.status = "completed"
