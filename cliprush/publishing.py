@@ -97,6 +97,12 @@ def dispatch(db: Session, post_id: int) -> str:
         return post.status
     if not get_settings().enable_publish:
         return "disabled"
+    from cliprush.budget import within_budget
+    if not within_budget(db):
+        post.status = "deferred"
+        post.error = "Recorded monthly expense cap reached"
+        db.commit()
+        return post.status
     if not post.clip.safety_checked or post.clip.status != "approved" or post.clip.safety_status == "blocked":
         post.status = "blocked"
         db.commit()

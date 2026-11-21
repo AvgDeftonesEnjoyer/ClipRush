@@ -16,7 +16,7 @@ from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
 from cliprush.logic import ALLOWED_PLATFORMS, apply_completed_job, valid_webhook, validate_source_url
 from cliprush.models import (
-    Account, Clip, Metric, Payout, Post, Program, ProgramCandidate, Recording, Streamer, WeeklyReport, now,
+    Account, Clip, Expense, Metric, Payout, Post, Program, ProgramCandidate, Recording, Streamer, WeeklyReport, now,
 )
 from cliprush.tasks import (
     dispatch_post_task, prepare_clips_task, scan_clip_task, submit_recording,
@@ -116,6 +116,30 @@ class ConfirmPayoutIn(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+class ExpenseIn(BaseModel):
+    vendor: str = Field(min_length=1, max_length=80)
+    amount_cents: int = Field(ge=0)
+    note: str = Field(default="", max_length=500)
+
+
+@app.post("/expenses", dependencies=[Depends(admin)])
+def record_expense(body: ExpenseIn, db: Session = Depends(db_session)):
+    entry = Expense(**body.model_dump())
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return {"id": entry.id, "amount_cents": entry.amount_cents}
+
+
+@app.get("/budget", dependencies=[Depends(admin)])
+def budget_snapshot(db: Session = Depends(db_session)):
+    from cliprush.budget import month_spent_cents, budget_remaining_cents
+    return {"currency": "USD", "manual_accounting": True,
+            "month_spent_cents": month_spent_cents(db),
+            "remaining_cents": budget_remaining_cents(db),
+            "limit_usd": get_settings().budget_limit_usd}
 
 
 @app.get("/candidates", dependencies=[Depends(admin)])

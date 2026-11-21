@@ -141,6 +141,7 @@ class Payout(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending")
     evidence_url: Mapped[str] = mapped_column(Text, default="")
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -173,4 +174,13 @@ class ProgramCandidate(Base):
     text: Mapped[str] = mapped_column(Text)
     fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
     status: Mapped[str] = mapped_column(String(32), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Expense(Base):
+    __tablename__ = "expenses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendor: Mapped[str] = mapped_column(String(80))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

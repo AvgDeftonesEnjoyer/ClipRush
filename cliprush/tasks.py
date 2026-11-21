@@ -18,6 +18,7 @@ celery_app.conf.beat_schedule = {
     "post-dispatch": {"task": "cliprush.dispatch_pending", "schedule": 180.0},
     "post-reconcile": {"task": "cliprush.reconcile_posts", "schedule": 600.0},
     "post-metrics": {"task": "cliprush.collect_metrics", "schedule": 21600.0},
+    "payout-alerts": {"task": "cliprush.payout_alerts", "schedule": 21600.0},
     "weekly-review": {"task": "cliprush.weekly_report", "schedule": crontab(hour=18, minute=0, day_of_week="sunday")},
 }
 
@@ -28,6 +29,12 @@ def submit_recording(recording_id: int):
     with SessionLocal() as db:
         record = db.get(Recording, recording_id)
         if not record or record.openshorts_job_id or record.status != "queued":
+            return
+        from cliprush.budget import within_budget
+        if not within_budget(db):
+            record.status = "budget_hold"
+            record.error = "Monthly recorded spending reached the owner limit"
+            db.commit()
             return
         if not record.program.enabled or not record.program.rights_confirmed:
             record.status = "blocked"
@@ -255,3 +262,29 @@ def weekly_report_task():
             send_message(report.text)
         except Exception:
             log.exception("Could not send weekly Telegram report")
+
+
+@celery_app.task(name="cliprush.payout_alerts")
+def payout_alerts_task():
+    from cliprush.models import Payout, now
+    from cliprush.telegram import send_message
+    with SessionLocal() as db:
+        for payout in db.scalars(select(Payout).where(
+            Payout.status == "eligible", Payout.notified_at.is_(None)
+        ).limit(30)):
+            post = db.get(Post, payout.post_id)
+            if not post:
+                continue
+            program = post.clip.recording.program
+            try:
+                send_message(
+                    f"ClipRush: potential payout {payout.amount_cents / 100:.2f} "
+                    f"{payout.currency} for post #{post.id}.\n"
+                    f"Program: {program.name}\nRules: {program.rules_url}\n"
+                    f"Post: {post.post_url}\n"
+                    "Submit evidence in the program manually. Mark confirmed ONLY after receipt."
+                )
+                payout.notified_at = now()
+                db.commit()
+            except Exception:
+                log.exception("Payout notice failed; will retry later")

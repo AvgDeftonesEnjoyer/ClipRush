@@ -37,4 +37,4 @@ Specification dated 22 November 2026; end-of-week-7 decision: **10 January 2027*
 - Caption presets are reapplied per clip via OpenShorts /api/subtitle; varied framing and title templates still require additional integration / QA.
 - Weekly top/bottom 10% and suggestions run from 72h+ samples; actual A/B test allocation and prompt changes still require verified samples and owner approval.
 - Fallback AI-laboratory video creation requires separate original content generation credentials and rights.
-- No independent automatic enforcement of vendor dollar spend is possible without vendor billing records.
+- The USD 80 cap applies to owner-entered expenses in the local ledger. Importing live vendor bills or reconciling invoices automatically is not implemented.
