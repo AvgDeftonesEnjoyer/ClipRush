@@ -90,7 +90,7 @@ def test_upload_account_quota_and_pause(db):
     db.add(post)
     db.commit()
     assert "gap" in quota_error(db, account).lower()
-    assert quota_error(db, account, urgent=True) is None
+    assert "gap" in quota_error(db, account, urgent=True).lower()  # no urgent quota bypass
     account.paused = True
     db.commit()
     assert "paused" in quota_error(db, account)
@@ -311,6 +311,7 @@ def test_approved_clip_to_mock_published_post_end_to_end(db, monkeypatch, tmp_pa
     monkeypatch.setattr(publishing, "upload", lambda post, _: {"request_id": post.request_id})
     cfg = get_settings()
     monkeypatch.setattr(cfg, "enable_publish", True)
+    monkeypatch.setattr(cfg, "upload_post_api_key", "fake-test-key")
     assert dispatch(db, ids[0]) == "submitted"
     post = db.get(Post, ids[0])
     assert post.request_id
