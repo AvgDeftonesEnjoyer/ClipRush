@@ -8,3 +8,4 @@ pydantic-settings>=2.5,<3
 websockets>=12,<18
 streamlink>=7,<9
 cryptography>=43,<49
+alembic>=1.14,<2

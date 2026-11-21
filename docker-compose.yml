@@ -1,16 +1,22 @@
 services:
+  migrate:
+    build: .
+    command: alembic upgrade head
+    restart: "no"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
   api:
     build: .
     restart: unless-stopped
     env_file: .env
-    ports:
-      - "127.0.0.1:8080:8080"
-    volumes:
-      - clips:/data
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: [clips:/data]
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
   worker:
@@ -18,12 +24,11 @@ services:
     command: celery -A cliprush.tasks.celery_app worker --loglevel=info --concurrency=2
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - clips:/data
+    volumes: [clips:/data]
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_started
   beat:
@@ -31,17 +36,23 @@ services:
     command: celery -A cliprush.tasks.celery_app beat --loglevel=info
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - clips:/data
-    depends_on: [db, redis]
+    volumes: [clips:/data]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
   scout:
     build: .
     command: python -m cliprush.live
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - clips:/data
-    depends_on: [db, redis]
+    volumes: [clips:/data]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
   db:
     image: postgres:16-alpine
     restart: unless-stopped
