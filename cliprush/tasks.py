@@ -89,9 +89,15 @@ def detect_moment_task(moment_id: int):
                 moment.status = "blocked"
                 db.commit()
                 return
+            source_url = {
+                "twitch": f"https://www.twitch.tv/{streamer.channel}",
+                "kick": f"https://kick.com/{streamer.channel}",
+                "youtube": f"https://www.youtube.com/watch?v={streamer.channel}",
+            }.get(streamer.platform)
+            if not source_url:
+                raise ValueError("Unrecognized streamer platform")
             rec = Recording(program_id=streamer.program_id, external_id=moment.event_key,
-                            source_url=f"https://www.twitch.tv/{streamer.channel}",
-                            local_path=out, status="queued")
+                            source_url=source_url, local_path=out, status="queued")
             db.add(rec)
             db.commit()
             db.refresh(rec)

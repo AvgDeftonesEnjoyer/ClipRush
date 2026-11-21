@@ -74,4 +74,5 @@ async def watch_youtube_streamer(streamer: Streamer, chat_id: str):
     finally:
         for task in pending:
             task.cancel()
+        youtube.client.close()
         capture.stop()

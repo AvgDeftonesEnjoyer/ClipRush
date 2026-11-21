@@ -76,7 +76,9 @@ def handle_kick_event(db: Session, event: dict, headers, redis_client: Redis | N
     ))
     if streamer is None:
         return {"ignored": True}
-    redis_client = redis_client or Redis.from_url(get_settings().redis_url, decode_responses=True)
+    if redis_client is None:
+        with Redis.from_url(get_settings().redis_url, decode_responses=True) as client:
+            return handle_kick_event(db, event, headers, redis_client=client)
     # Kick retries signed deliveries. Do not double count a chat message.
     replay_key = "kick:event:" + msg_id
     if not redis_client.set(replay_key, "1", ex=24 * 3600, nx=True):

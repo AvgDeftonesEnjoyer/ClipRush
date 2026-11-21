@@ -230,7 +230,10 @@ def create_streamer(body: StreamerIn, db: Session = Depends(db_session)):
         raise HTTPException(422, "Invalid Kick slug")
     if body.platform == "youtube" and not re.fullmatch(r"[A-Za-z0-9_-]{11}", body.channel):
         raise HTTPException(422, "YouTube stream source must be an 11-character video ID")
-    streamer = Streamer(**body.model_dump())
+    data = body.model_dump()
+    if body.platform == "kick":
+        data["channel"] = body.channel.lower()
+    streamer = Streamer(**data)
     db.add(streamer)
     try:
         db.commit()
