@@ -203,6 +203,14 @@ def test_api_owner_flow(monkeypatch):
             assert client.post("/hooks/openshorts", content=payload,
                 headers={"X-OpenShorts-Signature": signature}).json()["new_clips"] == 0
             clip_id = client.get("/clips", headers=auth).json()[0]["id"]
+            pending = client.post(f"/clips/{clip_id}/review", headers=auth,
+                                  json={"decision": "approve", "safety_checked": True})
+            assert pending.status_code == 409  # video has not passed the scanner
+            with SessionLocal() as db:
+                clip = db.get(Clip, clip_id)
+                clip.safety_status = "review"
+                clip.safety_reasons = ["Must verify manually"]
+                db.commit()
             denied = client.post(f"/clips/{clip_id}/review", headers=auth,
                                  json={"decision": "approve", "safety_checked": False})
             assert denied.status_code == 422
