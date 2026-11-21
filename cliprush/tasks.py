@@ -97,6 +97,45 @@ def detect_moment_task(moment_id: int):
             db.commit()
 
 
+@celery_app.task(name="cliprush.prepare_clips")
+def prepare_clips_task(recording_id: int):
+    """Apply one of six REAL caption presets, then screen clips serially per job."""
+    init_db()
+    with SessionLocal() as db:
+        recording = db.get(Recording, recording_id)
+        if not recording or not recording.openshorts_job_id:
+            return
+        clip_ids = list(db.scalars(select(Clip.id).where(
+            Clip.recording_id == recording.id,
+            Clip.status == "needs_review", Clip.safety_status == "unknown"
+        ).order_by(Clip.id)))
+    for clip_id in clip_ids:
+        with SessionLocal() as db:
+            clip = db.scalar(select(Clip).where(Clip.id == clip_id).with_for_update())
+            if clip is None or clip.status != "needs_review" or clip.safety_status != "unknown":
+                continue
+            clip.status = "styling"
+            db.commit()
+            try:
+                result = OpenShorts().restyle(
+                    recording.openshorts_job_id, clip.clip_index, clip.style
+                )
+                url = result.get("video_url") or result.get("download_url")
+                # OpenShorts may return only metadata for current render.
+                if url:
+                    clip.video_url = str(url)
+                clip.status = "needs_review"
+                db.commit()
+            except Exception as exc:
+                clip.status = "blocked"
+                clip.safety_status = "blocked"
+                clip.safety_reasons = ["Caption style was not applied: " + str(exc)[:150]]
+                db.commit()
+                continue
+        # Invoke stage synchronously to keep per-job updates serialized.
+        scan_clip_task(clip_id)
+
+
 @celery_app.task(name="cliprush.scan_clip")
 def scan_clip_task(clip_id: int):
     from cliprush.media import fetch_clip, visual_fingerprint
@@ -152,8 +191,8 @@ def sync_jobs_task():
                 apply_completed_job(db, rec, result)
                 new = [c.id for c in db.scalars(select(Clip).where(Clip.recording_id == rec.id))
                        if c.id not in before]
-                for clip_id in new:
-                    scan_clip_task.delay(clip_id)
+                if new:
+                    prepare_clips_task.delay(rec.id)
             except Exception:
                 log.exception("OpenShorts status sync failed for recording %s", rec.id)
 

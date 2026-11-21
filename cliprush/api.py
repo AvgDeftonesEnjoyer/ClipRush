@@ -19,7 +19,7 @@ from cliprush.models import (
     Account, Clip, Metric, Payout, Post, Program, ProgramCandidate, Recording, Streamer, WeeklyReport, now,
 )
 from cliprush.tasks import (
-    dispatch_post_task, scan_clip_task, submit_recording,
+    dispatch_post_task, prepare_clips_task, scan_clip_task, submit_recording,
 )
 
 
@@ -297,9 +297,8 @@ def sync_job(recording_id: int, db: Session = Depends(db_session)):
         raise HTTPException(502, "Upstream OpenShorts unavailable")
     before = {c.id for c in db.scalars(select(Clip).where(Clip.recording_id == record.id))}
     count = apply_completed_job(db, record, payload)
-    for clip in db.scalars(select(Clip).where(Clip.recording_id == record.id)):
-        if clip.id not in before:
-            scan_clip_task.delay(clip.id)
+    if count:
+        prepare_clips_task.delay(record.id)
     return {"status": record.status, "new_clips": count}
 
 
@@ -326,9 +325,8 @@ async def openshorts_hook(request: Request, db: Session = Depends(db_session),
     updated = dict(payload)
     updated["status"] = "completed" if event == "job.completed" else "failed"
     count = apply_completed_job(db, record, updated)
-    for clip in db.scalars(select(Clip).where(Clip.recording_id == record.id)):
-        if clip.id not in before:
-            scan_clip_task.delay(clip.id)
+    if count:
+        prepare_clips_task.delay(record.id)
     return {"ok": True, "new_clips": count}
 
 

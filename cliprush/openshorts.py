@@ -42,6 +42,20 @@ class OpenShorts:
         response.raise_for_status()
         return response.json()["job_id"]
 
+    def restyle(self, job_id: str, clip_index: int, style: str) -> dict:
+        """Re-burn a distinct OpenShorts caption preset onto one finished clip."""
+        presets = {"classic": "default", "dark": "clean", "yellow": "hormozi",
+                   "red": "oneword", "pill": "pill", "outline": "lime"}
+        if style not in presets:
+            raise ValueError("Unknown style")
+        response = self.client.post(
+            "/api/subtitle",
+            json={"job_id": job_id, "clip_index": clip_index, "preset": presets[style]},
+            timeout=180,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def status(self, job_id: str) -> dict:
         response = self.client.get(f"/api/status/{job_id}")
         response.raise_for_status()

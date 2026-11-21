@@ -10,7 +10,7 @@
 |---|---|---|
 | 1 Live-Scout | Twitch Helix, авторизованный IRC-бот, всплески чата, кольцевой буфер 5-сек сегментов | Kick/YouTube Live: пока только записанный контент |
 | 2 Detect | faster-whisper с таймкодами, LLM via OpenRouter, score 6+, окно 15–45 с | Требуются модель, ресурсы и ключи |
-| 3 Edit | OpenShorts REST, 9:16, субтитры, хук | Нужно развернуть OpenShorts отдельно; качество требует ручной QA |
+| 3 Edit | OpenShorts REST, 9:16, субтитры, хук и 6 реально применяемых пресетов OpenShorts | Нужно развернуть OpenShorts отдельно; качество требует ручной QA |
 | 4 Package/Filter | анализ речи/кадров/OCR/AcoustID, отклонение подозрительных клипов | Не доказывает отсутствие лицензированной музыки; неподтверждённые сигналы только на ручную проверку |
 | 5 Approve | Telegram owner-only webhook и кнопки, или защищённый FastAPI | Нужны токены и реальный просмотр владельцем |
 | 6 Publish | Upload-Post REST, account quotas, idempotency, reconciliation | Не включается без ключей/профилей/настройки |
