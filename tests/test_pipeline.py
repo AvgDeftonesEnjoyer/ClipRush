@@ -166,6 +166,7 @@ def test_api_owner_flow(monkeypatch):
     monkeypatch.setattr(settings, "enable_publish", False)
     monkeypatch.setattr(api.submit_recording, "delay", lambda _: None)
     monkeypatch.setattr(api.scan_clip_task, "delay", lambda _: None)
+    monkeypatch.setattr(api.prepare_clips_task, "delay", lambda _: None)
     auth = {"Authorization": "Bearer unit-test-admin-token-strong"}
     try:
         with TestClient(api.app) as client:
@@ -215,3 +216,31 @@ def test_api_owner_flow(monkeypatch):
         SessionLocal.configure(bind=original_engine)
         db_module.engine = original_engine
         engine.dispose()
+
+
+def test_restyle_adapter_calls_openshorts_subtitles():
+    requests = []
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"video_url": "/output/styled.mp4"})
+    with httpx.Client(base_url="http://upstream", transport=httpx.MockTransport(handler)) as client:
+        result = OpenShorts(client).restyle("job-2", 1, "pill")
+    assert result["video_url"] == "/output/styled.mp4"
+    assert requests == [{"job_id": "job-2", "clip_index": 1, "preset": "pill"}]
+
+
+def test_authorized_telegram_discovery(monkeypatch, db):
+    from cliprush.discovery import ingest_telegram_post
+    from cliprush.models import ProgramCandidate
+    settings = get_settings()
+    monkeypatch.setattr(settings, "discovery_chat_ids", "-100456")
+    incoming = {"chat": {"id": -100456, "username": "example"},
+                "message_id": 11,
+                "text": "Конкурс нарезок: новые условия опубликованы"}
+    message = ingest_telegram_post(db, incoming)
+    assert "t.me/example/11" in message
+    assert ingest_telegram_post(db, incoming) is None
+    assert db.scalar(select(ProgramCandidate)).status == "pending"
+    incoming["chat"]["id"] = -100123
+    incoming["message_id"] = 12
+    assert ingest_telegram_post(db, incoming) is None
