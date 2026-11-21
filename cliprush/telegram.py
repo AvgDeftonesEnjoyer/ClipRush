@@ -54,7 +54,7 @@ def send_clip(clip: Clip) -> None:
     cfg = get_settings()
     if not cfg.telegram_bot_token or not cfg.telegram_owner_id:
         return
-    if clip.safety_status == "blocked":
+    if clip.safety_status not in ("review", "clear") or clip.status != "needs_review":
         return
     caption = (f"Clip #{clip.id}: {clip.title[:250]}\n"
                f"Safety: {clip.safety_status}\n"
@@ -115,8 +115,11 @@ def handle_update(db: Session, payload: dict) -> dict:
                 log.exception("Telegram prompt callback failed")
             return {"result": response}
         clip = db.get(Clip, clip_id)
-        if not clip or clip.status in ("publishing", "submitted", "published"):
+        already_dispatched = db.scalar(select(Post.id).where(Post.clip_id == clip_id))
+        if not clip or clip.status not in ("needs_review", "approved", "rejected"):
             response = "Clip unavailable"
+        elif already_dispatched:
+            response = "Post already queued; pause the social account, do not reuse review buttons"
         elif action == "r":
             clip.status = "rejected"
             clip.review_reason = "Telegram owner rejected"

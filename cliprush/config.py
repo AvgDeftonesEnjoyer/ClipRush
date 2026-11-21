@@ -43,3 +43,14 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def verify_boot_configuration() -> None:
+    """Reject sample credentials and incomplete active publishing config."""
+    cfg = get_settings()
+    token = cfg.admin_token.strip()
+    if (len(token) < 16 or token.lower().startswith(("replace-", "change-me", "your-token"))
+            or len(set(token)) < 8):
+        raise RuntimeError("Configure a strong ADMIN_TOKEN before launching the API")
+    if cfg.enable_publish and not cfg.upload_post_api_key:
+        raise RuntimeError("ENABLE_PUBLISH requires UPLOAD_POST_API_KEY; fail closed")

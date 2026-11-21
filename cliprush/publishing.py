@@ -42,7 +42,7 @@ def quota_error(db: Session, account: Account, urgent: bool = False) -> str | No
 
 
 def queue_approved_clip(db: Session, clip: Clip, account_ids: list[int] | None = None) -> list[int]:
-    if clip.status != "approved" or not clip.safety_checked or clip.safety_status == "blocked":
+    if clip.status != "approved" or not clip.safety_checked or clip.safety_status not in ("review", "clear"):
         raise ValueError("Explicit manual review and a non-blocked safety result are required")
     if not clip.recording.program.enabled or not clip.recording.program.rights_confirmed:
         raise ValueError("Program is inactive or lacks confirmed rights")
@@ -106,6 +106,11 @@ def dispatch(db: Session, post_id: int) -> str:
         return post.status
     if not get_settings().enable_publish:
         return "disabled"
+    if not get_settings().upload_post_api_key:
+        post.status = "deferred"
+        post.error = "Upload-Post API key not configured"
+        db.commit()
+        return post.status
     from cliprush.control import publishing_paused
     if publishing_paused(db):
         post.status = "deferred"
@@ -118,7 +123,7 @@ def dispatch(db: Session, post_id: int) -> str:
         post.error = "Recorded monthly expense cap reached"
         db.commit()
         return post.status
-    if not post.clip.safety_checked or post.clip.status != "approved" or post.clip.safety_status == "blocked":
+    if not post.clip.safety_checked or post.clip.status != "approved" or post.clip.safety_status not in ("review", "clear"):
         post.status = "blocked"
         db.commit()
         return post.status
@@ -157,7 +162,7 @@ def dispatch(db: Session, post_id: int) -> str:
     if (publishing_paused(db) or not get_settings().enable_publish
             or post.account.paused or not post.account.enabled
             or not post.clip.safety_checked or post.clip.status != "approved"
-            or post.clip.safety_status == "blocked"
+            or post.clip.safety_status not in ("review", "clear")
             or not post.clip.recording.program.enabled
             or not post.clip.recording.program.rights_confirmed
             or rule_error(post.clip, post.account)):

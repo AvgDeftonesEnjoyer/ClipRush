@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,8 @@ from cliprush.tasks import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from cliprush.config import verify_boot_configuration
+    verify_boot_configuration()
     init_db()
     yield
 
@@ -185,6 +187,20 @@ class ConfirmPayoutIn(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def health_ready(db: Session = Depends(db_session)):
+    """Readiness requires database and Redis, but discloses no credentials."""
+    from redis import Redis
+    try:
+        db.execute(text("SELECT 1")).scalar_one()
+        with Redis.from_url(get_settings().redis_url, socket_connect_timeout=2,
+                            socket_timeout=2) as redis_client:
+            redis_client.ping()
+    except Exception:
+        raise HTTPException(503, "A required dependency is unavailable")
+    return {"status": "ready"}
 
 
 class ExpenseIn(BaseModel):
@@ -474,12 +490,16 @@ def sync_job(recording_id: int, db: Session = Depends(db_session)):
 async def openshorts_hook(request: Request, db: Session = Depends(db_session),
                           x_openshorts_signature: str | None = Header(default=None)):
     raw = await request.body()
+    if len(raw) > 1_000_000:
+        raise HTTPException(413, "Webhook too large")
     if not valid_webhook(raw, x_openshorts_signature, get_settings().openshorts_webhook_secret):
         raise HTTPException(401, "Invalid webhook signature")
     try:
         payload = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(400, "Invalid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Expected an event object")
     job_id = payload.get("job_id")
     if not isinstance(job_id, str):
         raise HTTPException(400, "Missing job_id")
@@ -531,10 +551,15 @@ async def telegram_hook(request: Request, db: Session = Depends(db_session),
         x_telegram_bot_api_secret_token, secret
     ):
         raise HTTPException(401, "Invalid Telegram secret")
+    raw = await request.body()
+    if len(raw) > 200_000:
+        raise HTTPException(413, "Telegram update too large")
     try:
-        payload = await request.json()
+        payload = json.loads(raw)
     except ValueError:
         raise HTTPException(400, "Invalid JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Expected an update object")
     return handle_update(db, payload)
 
 
@@ -572,8 +597,10 @@ def review(clip_id: int, body: ReviewIn, db: Session = Depends(db_session)):
         raise HTTPException(409, "Cannot change review after dispatch request")
     if clip.status == "blocked" or clip.safety_status == "blocked":
         raise HTTPException(409, "Automatic safety block requires investigation, not approval")
-    if body.decision == "approve" and clip.safety_status == "unknown" and not clip.safety_reasons:
-        raise HTTPException(409, "Safety scan is pending; review the preview after screening")
+    if (body.decision == "approve" and
+            (clip.safety_status not in ("review", "clear")
+             or clip.status not in ("needs_review", "approved", "rejected"))):
+        raise HTTPException(409, "Clip must finish safety review before approval")
     if body.decision == "approve" and not body.safety_checked:
         raise HTTPException(422, "Owner must manually watch and verify clip")
     clip.status = "approved" if body.decision == "approve" else "rejected"
