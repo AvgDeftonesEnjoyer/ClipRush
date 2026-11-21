@@ -35,6 +35,6 @@ Specification dated 22 November 2026; end-of-week-7 decision: **10 January 2027*
 - Authorized Telegram channel discovery is implemented for channels where the bot is an admin; Whop API discovery is not connected.
 - No external guarantee of detecting licensed music. AcoustID is a heuristic.
 - The spec's automatic editing style rotation currently records a distinct style *label*; per-clip OpenShorts render styles are not reliably applied through an API.
-- Prompt A/B experiment scheduler and automatic retraining require verified outcome data and owner approvals.
+- Weekly top/bottom 10% and suggestions run from 72h+ samples; actual A/B test allocation and prompt changes still require verified samples and owner approval.
 - Fallback AI-laboratory video creation requires separate original content generation credentials and rights.
 - No independent automatic enforcement of vendor dollar spend is possible without vendor billing records.
