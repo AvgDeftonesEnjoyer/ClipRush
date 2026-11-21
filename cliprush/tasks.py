@@ -4,7 +4,7 @@ from pathlib import Path
 
 from celery import Celery
 from celery.schedules import crontab
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
@@ -144,6 +144,8 @@ def prepare_clips_task(recording_id: int):
                 # OpenShorts may return only metadata for current render.
                 if url:
                     clip.video_url = str(url)
+                from cliprush.media import invalidate_cached_clip
+                invalidate_cached_clip(clip.id)
                 clip.status = "needs_review"
                 db.commit()
             except Exception as exc:
@@ -260,7 +262,7 @@ def collect_metrics_task():
     from cliprush.tracking import fetch_post_metrics, record_metric
     with SessionLocal() as db:
         posts = list(db.scalars(select(Post).where(
-            Post.status == "published", Post.platform_post_id.is_not(None)
+            Post.status == "published", or_(Post.request_id.is_not(None), Post.platform_post_id.is_not(None))
         ).limit(200)))
         for post in posts:
             try:

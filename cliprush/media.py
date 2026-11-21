@@ -119,3 +119,12 @@ def visual_fingerprint(path: str) -> str:
     except (OSError, subprocess.SubprocessError, ValueError):
         with open(path, "rb") as source:
             return hashlib.sha256(source.read(5 * 1024 * 1024)).hexdigest()
+
+
+def invalidate_cached_clip(clip_id: int) -> None:
+    """Invalidate media when OpenShorts re-renders a clip at the same URL."""
+    root = (Path(get_settings().data_dir) / "cache").resolve()
+    target = (root / f"clip-{int(clip_id)}.mp4").resolve()
+    if target.parent != root:
+        raise ValueError("Unsafe cache target")
+    target.unlink(missing_ok=True)
