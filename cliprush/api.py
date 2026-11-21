@@ -386,7 +386,11 @@ def update_title(clip_id: int, body: TitleIn, db: Session = Depends(db_session))
         raise HTTPException(404, "Clip not found")
     if db.scalar(select(Post.id).where(Post.clip_id == clip_id)):
         raise HTTPException(409, "Title locked: a publication job already exists")
-    clip.title = body.title
+    from cliprush.rules import package_title
+    try:
+        clip.title = package_title(body.title, clip.recording.program.rules)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
     db.commit()
     return {"id": clip.id, "title": clip.title}
 

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cliprush.models import Clip, Recording
+from cliprush.rules import package_title
 
 ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "youtu.be", "www.twitch.tv", "twitch.tv", "kick.com", "www.kick.com"}
 ALLOWED_PLATFORMS = {"youtube", "tiktok", "instagram"}
@@ -57,7 +58,10 @@ def apply_completed_job(session: Session, recording: Recording, payload: dict) -
         session.add(Clip(
             recording_id=recording.id,
             clip_index=index,
-            title=str(data.get("title") or data.get("video_title_for_youtube_short") or ""),
+            title=package_title(
+                str(data.get("title") or data.get("video_title_for_youtube_short") or ""),
+                recording.program.rules
+            ),
             video_url=str(data.get("download_url") or data.get("video_url") or ""),
             style=choose_style(session, recording),
         ))

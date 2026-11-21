@@ -45,6 +45,10 @@ def queue_approved_clip(db: Session, clip: Clip, account_ids: list[int] | None =
         raise ValueError("Explicit manual review and a non-blocked safety result are required")
     if not clip.recording.program.enabled or not clip.recording.program.rights_confirmed:
         raise ValueError("Program is inactive or lacks confirmed rights")
+    from cliprush.rules import rule_error
+    error = rule_error(clip)
+    if error:
+        raise ValueError(error)
     accounts = list(db.scalars(select(Account).where(
         Account.enabled.is_(True), Account.paused.is_(False)
     )))
@@ -55,6 +59,10 @@ def queue_approved_clip(db: Session, clip: Clip, account_ids: list[int] | None =
     if not accounts:
         raise ValueError("No active social account available")
     ids = []
+    for account in accounts:
+        error = rule_error(clip, account)
+        if error:
+            raise ValueError(f"Account {account.platform}/{account.profile}: {error}")
     for account in accounts:
         existing = db.scalar(select(Post).where(Post.clip_id == clip.id, Post.account_id == account.id))
         if existing:
@@ -109,6 +117,13 @@ def dispatch(db: Session, post_id: int) -> str:
         return post.status
     if not post.clip.recording.program.enabled or not post.clip.recording.program.rights_confirmed:
         post.status = "blocked"
+        db.commit()
+        return post.status
+    from cliprush.rules import rule_error
+    error = rule_error(post.clip, post.account)
+    if error:
+        post.status = "blocked"
+        post.error = error
         db.commit()
         return post.status
     urgent = bool(post.clip.recording.local_path)

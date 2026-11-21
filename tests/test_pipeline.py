@@ -46,7 +46,7 @@ def seed(db):
     db.flush()
     clip = Clip(recording_id=recording.id, clip_index=0, title="first clip",
                 video_url="/output/clip.mp4", status="approved",
-                safety_status="review", safety_checked=True)
+                safety_status="review", safety_checked=True, duration_seconds=28.0)
     db.add(clip)
     account = Account(platform="youtube", profile="my-profile", enabled=True,
                       created_at=datetime.now(timezone.utc) - timedelta(days=10))
@@ -271,3 +271,55 @@ def test_duplicate_status_checks_dispatched_posts_not_clip_review_status(db):
     db.commit()
     candidate, sent = duplicate_status(db, alternate.id, alternate.fingerprint)
     assert candidate.id == sent.id == original.id
+
+
+def test_rule_packaging_and_account_restrictions(db):
+    from cliprush.rules import package_title, rule_error
+    program, _, clip, account = seed(db)
+    program.rules = {
+        "allowed_platforms": ["youtube"],
+        "required_tags": ["#CreatorClip", "#Dota"],
+        "required_disclosure": "fan edit",
+        "min_seconds": 15, "max_seconds": 45,
+        "automated_clips_allowed": True,
+    }
+    clip.title = package_title("Смешной момент", program.rules)
+    db.commit()
+    assert "#CreatorClip" in clip.title and "fan edit" in clip.title
+    assert rule_error(clip, account) is None
+    account.platform = "tiktok"
+    assert rule_error(clip, account) == "Platform not allowed by program"
+    account.platform = "youtube"
+    clip.duration_seconds = 50
+    assert "length" in rule_error(clip, account)
+    clip.duration_seconds = 28
+    program.rules["automated_clips_allowed"] = False
+    assert "prohibits automated" in rule_error(clip, account)
+
+
+def test_approved_clip_to_mock_published_post_end_to_end(db, monkeypatch, tmp_path):
+    from cliprush.publishing import queue_approved_clip, dispatch, reconcile
+    from cliprush.tracking import record_metric
+    import cliprush.publishing as publishing
+    _, _, clip, account = seed(db)
+    ids = queue_approved_clip(db, clip, [account.id])
+    assert len(ids) == 1
+    assert queue_approved_clip(db, clip, [account.id]) == ids  # no duplicate posting
+    video = tmp_path / "safe.mp4"
+    video.write_bytes(b"mocked video payload")
+    monkeypatch.setattr(publishing, "fetch_clip", lambda *_: str(video))
+    monkeypatch.setattr(publishing, "upload", lambda post, _: {"request_id": post.request_id})
+    cfg = get_settings()
+    monkeypatch.setattr(cfg, "enable_publish", True)
+    assert dispatch(db, ids[0]) == "submitted"
+    post = db.get(Post, ids[0])
+    assert post.request_id
+    assert reconcile(db, post, {"status": "completed", "results": [{
+        "platform": "youtube", "success": True, "post_id": "demo-short",
+        "url": "https://www.youtube.com/shorts/demo-short",
+    }]}) == "published"
+    metric = record_metric(db, post, {"platforms": {"youtube": {
+        "success": True, "post_metrics": {"views": 111000, "likes": 1000}
+    }}})
+    assert metric.views == 111000
+    assert db.scalar(select(Payout).where(Payout.post_id == post.id)).status == "eligible"

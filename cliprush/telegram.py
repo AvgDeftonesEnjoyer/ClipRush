@@ -126,7 +126,8 @@ def handle_update(db: Session, payload: dict) -> dict:
                 if clip and clip.status in ("needs_review", "approved", "rejected") and not db.scalar(
                     select(Post.id).where(Post.clip_id == clip.id)
                 ):
-                    clip.title = bits[2][:150]
+                    from cliprush.rules import package_title
+                    clip.title = package_title(bits[2], clip.recording.program.rules)
                     db.commit()
                     send_message(f"Clip #{clip.id}: title updated. Approve via buttons.")
         elif text.startswith("/report"):

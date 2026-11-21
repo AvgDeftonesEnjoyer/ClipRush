@@ -145,7 +145,7 @@ def prepare_clips_task(recording_id: int):
 
 @celery_app.task(name="cliprush.scan_clip")
 def scan_clip_task(clip_id: int):
-    from cliprush.media import fetch_clip, visual_fingerprint
+    from cliprush.media import fetch_clip, visual_fingerprint, ffprobe_seconds
     from cliprush.safety import inspect
     from cliprush.telegram import send_clip
     init_db()
@@ -155,6 +155,7 @@ def scan_clip_task(clip_id: int):
             return
         try:
             clip_path = fetch_clip(clip.video_url, clip.id)
+            clip.duration_seconds = ffprobe_seconds(clip_path)
             fingerprint = visual_fingerprint(clip_path)
             clip.fingerprint = fingerprint
             from cliprush.logic import duplicate_status

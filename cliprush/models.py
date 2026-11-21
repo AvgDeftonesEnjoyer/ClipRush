@@ -85,6 +85,7 @@ class Clip(Base):
     review_reason: Mapped[str] = mapped_column(Text, default="")
     style: Mapped[str] = mapped_column(String(40), default="classic")
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
     publish_response: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     recording: Mapped[Recording] = relationship()
