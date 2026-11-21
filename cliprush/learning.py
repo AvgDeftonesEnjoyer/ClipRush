@@ -117,6 +117,7 @@ def render_summary(data: dict) -> str:
         f"Источники по средним просмотрам за 72ч: {top_sources}\n"
         f"Выплаты: {payout} (eligible ≠ paid)\n"
         f"Вывод: {data['recommendation']}\n"
+        f"Detect-промпт на одобрение: #{data.get('prompt_proposal_id') or 'нет'}\n"
         "Изменения промптов, аккаунтов, бюджета и стратегии требуют одобрения."
     )
 
@@ -127,6 +128,9 @@ def save_weekly(db: Session) -> WeeklyReport:
     if existing:
         return existing
     summary = summarize(db)
+    from cliprush.prompts import propose_weekly_experiment
+    proposal_id = propose_weekly_experiment(db, summary["mature_72h"], now().isocalendar().week)
+    summary["prompt_proposal_id"] = proposal_id
     report = WeeklyReport(week_key=date, summary=summary, text=render_summary(summary))
     db.add(report)
     db.commit()

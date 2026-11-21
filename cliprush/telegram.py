@@ -35,6 +35,21 @@ def send_message(text: str) -> None:
                                    "text": text[:3900]})
 
 
+def send_report(report: WeeklyReport) -> None:
+    """Send owner review with optional explicit experiment-approval buttons."""
+    cfg = get_settings()
+    if not cfg.telegram_bot_token or not cfg.telegram_owner_id:
+        return
+    data = {"chat_id": str(cfg.telegram_owner_id), "text": report.text[:3900]}
+    proposal_id = (report.summary or {}).get("prompt_proposal_id")
+    if proposal_id:
+        data["reply_markup"] = json.dumps({"inline_keyboard": [[
+            {"text": "✅ Принять промпт", "callback_data": f"pa:{proposal_id}"},
+            {"text": "❌ Отклонить промпт", "callback_data": f"pr:{proposal_id}"},
+        ]]}, ensure_ascii=False)
+    tg_call("sendMessage", data=data)
+
+
 def send_clip(clip: Clip) -> None:
     cfg = get_settings()
     if not cfg.telegram_bot_token or not cfg.telegram_owner_id:
@@ -85,6 +100,20 @@ def handle_update(db: Session, payload: dict) -> dict:
             clip_id = int(raw)
         except (ValueError, TypeError):
             return {"ignored": True}
+        if action in ("pa", "pr"):
+            from cliprush.prompts import activate, reject
+            try:
+                proposal = activate(db, clip_id) if action == "pa" else reject(db, clip_id)
+                response = ("Detect prompt activated" if action == "pa" else "Prompt rejected") + f": v{proposal.version}"
+            except ValueError as error:
+                response = str(error)
+            try:
+                tg_call("answerCallbackQuery", data={
+                    "callback_query_id": callback["id"], "text": response[:190]
+                })
+            except Exception:
+                log.exception("Telegram prompt callback failed")
+            return {"result": response}
         clip = db.get(Clip, clip_id)
         if not clip or clip.status in ("publishing", "submitted", "published"):
             response = "Clip unavailable"

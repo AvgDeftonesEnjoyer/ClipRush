@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
-from cliprush.models import Clip, Moment, Post, Program, Recording, Streamer
+from cliprush.models import Clip, Moment, Post, Program, PromptVersion, Recording, Streamer
 from cliprush.openshorts import OpenShorts
 
 log = logging.getLogger(__name__)
@@ -70,7 +70,11 @@ def detect_moment_task(moment_id: int):
         moment.status = "detecting"
         db.commit()
         try:
-            decision = score_candidate(moment.source_path)
+            active_prompt = db.scalar(select(PromptVersion).where(
+                PromptVersion.module == "detect", PromptVersion.active.is_(True),
+                PromptVersion.approved.is_(True)
+            ).order_by(PromptVersion.version.desc()))
+            decision = score_candidate(moment.source_path, active_prompt.prompt if active_prompt else None)
             if not decision:
                 moment.status = "rejected"
                 db.commit()
@@ -261,11 +265,11 @@ def collect_metrics_task():
 @celery_app.task(name="cliprush.weekly_report")
 def weekly_report_task():
     from cliprush.learning import save_weekly
-    from cliprush.telegram import send_message
+    from cliprush.telegram import send_report
     with SessionLocal() as db:
         report = save_weekly(db)
         try:
-            send_message(report.text)
+            send_report(report)
         except Exception:
             log.exception("Could not send weekly Telegram report")
 
@@ -274,6 +278,9 @@ def weekly_report_task():
 def payout_alerts_task():
     from cliprush.models import Payout, now
     from cliprush.telegram import send_message
+    cfg = get_settings()
+    if not cfg.telegram_bot_token or not cfg.telegram_owner_id:
+        return
     with SessionLocal() as db:
         for payout in db.scalars(select(Payout).where(
             Payout.status == "eligible", Payout.notified_at.is_(None)

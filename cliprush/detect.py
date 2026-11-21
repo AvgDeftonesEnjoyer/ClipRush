@@ -61,12 +61,12 @@ def llm_json(prompt: str, payload: str, *, vision_parts: list[dict] | None = Non
     return json.loads(raw)
 
 
-def score_candidate(path: str) -> Candidate | None:
+def score_candidate(path: str, prompt: str | None = None) -> Candidate | None:
     duration = ffprobe_seconds(path)
     transcript, words = transcribe(path)
     if not transcript or len(words) < 4 or duration < 15:
         return None
-    output = llm_json(PROMPT, json.dumps({"duration": duration, "words": words}, ensure_ascii=False))
+    output = llm_json(prompt or PROMPT, json.dumps({"duration": duration, "words": words}, ensure_ascii=False))
     try:
         score = float(output["score"])
         start = float(output["start"])

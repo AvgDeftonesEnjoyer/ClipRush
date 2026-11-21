@@ -35,6 +35,6 @@ Specification dated 22 November 2026; end-of-week-7 decision: **10 January 2027*
 - Authorized Telegram channel discovery is implemented for channels where the bot is an admin; Whop API discovery is not connected.
 - No external guarantee of detecting licensed music. AcoustID is a heuristic.
 - Caption presets are reapplied per clip via OpenShorts /api/subtitle; varied framing and title templates still require additional integration / QA.
-- Weekly top/bottom 10% and suggestions run from 72h+ samples; actual A/B test allocation and prompt changes still require verified samples and owner approval.
+- Weekly top/bottom 10% and deterministic question-vs-statement Detect prompt proposal work from 72h+ samples; deployment of prompt revisions requires Telegram/API owner approval. Formal randomized A/B assignment and causal attribution still need verification.
 - Fallback AI-laboratory video creation requires separate original content generation credentials and rights.
 - The USD 80 cap applies to owner-entered expenses in the local ledger. Importing live vendor bills or reconciling invoices automatically is not implemented.

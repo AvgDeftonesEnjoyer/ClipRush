@@ -16,7 +16,7 @@ from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
 from cliprush.logic import ALLOWED_PLATFORMS, apply_completed_job, valid_webhook, validate_source_url
 from cliprush.models import (
-    Account, Clip, Expense, Metric, Payout, Post, Program, ProgramCandidate, Recording, Streamer, WeeklyReport, now,
+    Account, Clip, Expense, Metric, Payout, Post, Program, ProgramCandidate, PromptVersion, Recording, Streamer, WeeklyReport, now,
 )
 from cliprush.tasks import (
     dispatch_post_task, prepare_clips_task, scan_clip_task, submit_recording,
@@ -140,6 +140,52 @@ def budget_snapshot(db: Session = Depends(db_session)):
             "month_spent_cents": month_spent_cents(db),
             "remaining_cents": budget_remaining_cents(db),
             "limit_usd": get_settings().budget_limit_usd}
+
+
+class PromptProposal(BaseModel):
+    prompt: str = Field(min_length=120, max_length=10000)
+
+
+class PromptApproval(BaseModel):
+    confirmation: Literal["ACTIVATE"]
+
+
+@app.get("/prompts", dependencies=[Depends(admin)])
+def prompt_versions(db: Session = Depends(db_session)):
+    from cliprush.prompts import list_versions
+    return [{"id": p.id, "version": p.version, "active": p.active,
+             "approved": p.approved, "rejected": p.rejected,
+             "prompt": p.prompt} for p in list_versions(db)]
+
+
+@app.post("/prompts", dependencies=[Depends(admin)])
+def propose_prompt(body: PromptProposal, db: Session = Depends(db_session)):
+    from cliprush.prompts import propose
+    try:
+        version = propose(db, body.prompt)
+    except ValueError as error:
+        raise HTTPException(422, str(error))
+    return {"id": version.id, "version": version.version, "active": False}
+
+
+@app.post("/prompts/{version_id}/activate", dependencies=[Depends(admin)])
+def approve_prompt(version_id: int, body: PromptApproval, db: Session = Depends(db_session)):
+    from cliprush.prompts import activate
+    try:
+        version = activate(db, version_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error))
+    return {"id": version.id, "active": version.active, "approved": version.approved}
+
+
+@app.post("/prompts/{version_id}/reject", dependencies=[Depends(admin)])
+def dismiss_prompt(version_id: int, db: Session = Depends(db_session)):
+    from cliprush.prompts import reject
+    try:
+        version = reject(db, version_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error))
+    return {"id": version.id, "rejected": version.rejected}
 
 
 @app.get("/candidates", dependencies=[Depends(admin)])
