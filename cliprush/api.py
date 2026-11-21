@@ -547,9 +547,8 @@ def sync_job(recording_id: int, db: Session = Depends(db_session)):
 @app.post("/hooks/openshorts")
 async def openshorts_hook(request: Request, db: Session = Depends(db_session),
                           x_openshorts_signature: str | None = Header(default=None)):
-    raw = await request.body()
-    if len(raw) > 1_000_000:
-        raise HTTPException(413, "Webhook too large")
+    from cliprush.security import read_limited_body
+    raw = await read_limited_body(request, 1_000_000)
     if not valid_webhook(raw, x_openshorts_signature, get_settings().openshorts_webhook_secret):
         raise HTTPException(401, "Invalid webhook signature")
     try:
@@ -581,9 +580,8 @@ async def kick_hook(request: Request, db: Session = Depends(db_session)):
     from cliprush.kick import verify_kick_signature, handle_kick_event
     if not get_settings().kick_webhooks_enabled:
         raise HTTPException(503, "Kick integration not configured")
-    raw = await request.body()
-    if len(raw) > 100_000:
-        raise HTTPException(413, "Event too large")
+    from cliprush.security import read_limited_body
+    raw = await read_limited_body(request, 100_000)
     try:
         await asyncio.to_thread(verify_kick_signature, raw, request.headers)
     except ValueError:
@@ -609,9 +607,8 @@ async def telegram_hook(request: Request, db: Session = Depends(db_session),
         x_telegram_bot_api_secret_token, secret
     ):
         raise HTTPException(401, "Invalid Telegram secret")
-    raw = await request.body()
-    if len(raw) > 200_000:
-        raise HTTPException(413, "Telegram update too large")
+    from cliprush.security import read_limited_body
+    raw = await read_limited_body(request, 200_000)
     try:
         payload = json.loads(raw)
     except ValueError:

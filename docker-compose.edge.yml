@@ -1,0 +1,19 @@
+services:
+  edge:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CLIPRUSH_DOMAIN: ${CLIPRUSH_DOMAIN:?Set CLIPRUSH_DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+volumes:
+  caddy_data:
+  caddy_config:

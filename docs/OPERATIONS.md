@@ -16,6 +16,22 @@ docker compose logs --tail 80 api worker beat scout
 
 The simple `/health` is a liveness probe, `/health/ready` checks PostgreSQL and Redis. `/readiness`, `/ops/stats`, `/ops/stuck` and `/ops/audit` require the Bearer admin token. When behind a proxy, allow unauthenticated external access only to explicitly required provider webhooks, not administrative routes or docs.
 
+## 1a. HTTPS ingress for external webhooks
+
+The base Compose file exposes only `127.0.0.1:8080`. For signed webhooks, configure DNS for your own domain and open ports 80/443, set `CLIPRUSH_DOMAIN` and `PUBLIC_BASE_URL=https://your-domain`, then deploy:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+```
+
+The Caddy reverse proxy obtains and renews HTTPS certificates and **only** forwards `/hooks/openshorts`, `/hooks/kick` and `/hooks/telegram`. All other public paths return 404. Do not publish `:8080` directly or expose the admin API, `/docs` and diagnostics on the internet. For administration, use an SSH tunnel:
+
+```sh
+ssh -L 8080:127.0.0.1:8080 your-server
+```
+
+The webhook handlers still require valid signatures; TLS is not a replacement for them.
+
 ## 2. Emergency stop
 
 ```sh

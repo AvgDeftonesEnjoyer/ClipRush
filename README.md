@@ -40,6 +40,10 @@ API Docs: **http://localhost:8080/docs**. Админ-запросы: `Authorizat
 
 Официальные источники: [Kick webhooks](https://github.com/KickEngineering/KickDevDocs/blob/main/events/webhook-security.md), [Kick event types](https://github.com/KickEngineering/KickDevDocs/blob/main/events/event-types.md), [YouTube Live chat](https://developers.google.com/youtube/data/live/streaming-live-chat), [Streamlink plugins](https://streamlink.github.io/plugins.html).
 
+### HTTPS и закрытый административный API
+
+Чтобы Telegram, Kick и OpenShorts могли присылать webhooks, используй [опциональный Caddy reverse proxy](docker-compose.edge.yml). Заполни `CLIPRUSH_DOMAIN` и `PUBLIC_BASE_URL`, затем запусти `docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build`. Публично будут доступны только три подписанных webhook-пути. Админ-доступ — через SSH-туннель на `127.0.0.1:8080`, не через общий интернет. Подробнее [в операционном руководстве](docs/OPERATIONS.md).
+
 ### Подключение Telegram
 
 Публичный HTTPS reverse proxy должен безопасно проксировать `/hooks/telegram` и `/hooks/openshorts` на локальный `8080`. Установи `PUBLIC_BASE_URL=https://<your-domain>` и случайные секреты подписей.
