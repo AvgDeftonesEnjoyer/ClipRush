@@ -1,58 +1,80 @@
 # ClipRush
 
-Permission-first pipeline for turning **authorized recordings** into candidate vertical clips with [OpenShorts](https://github.com/mutonby/openshorts).
+**ClipRush** — конвейер для подготовки и публикации клипов из **разрешённых** стримов через [OpenShorts](https://github.com/mutonby/openshorts) и [Upload-Post](https://docs.upload-post.com/api/upload-video/). Python/FastAPI, Celery/Redis, PostgreSQL, Twitch + Whisper + LLM, Telegram-бот, учёт просмотров и выплат.
 
-> **Status: week-1 foundation (MVP), not a production autopublisher.** The live chat scout, Whisper/LLM scoring, automated copyright/casino/PII moderation, payout tracking, analytics and reliable end-to-end latency guarantees are **not implemented**. Nothing is posted automatically.
+**Состояние:** программная реализация основных модулей находится в Draft PR. Деплой, реальные OAuth-подключения и интеграционные проверки на GPU, эфирах и платформах не выполнены. Нельзя считать это готовой автономной системой с доказанными KPI. По умолчанию **публикация отключена**.
 
-## Included
-- FastAPI endpoints to register approved streamer programs, ingest recordings, inspect jobs/clips, review clips and (optionally) manually trigger publishing.
-- Celery + Redis background processing, PostgreSQL persistence, idempotency for recordings and signed OpenShorts completion webhooks.
-- OpenShorts REST adapter; its upstream source remains unmodified.
-- Manual *safe/unsafe* review and explicit approval required before a publish operation. Defaults block publishing.
-- Docker Compose, environment template, unit tests and CI.
+## Состав
 
-## Start
+| Этап | Реализованная точка интеграции | Ограничение |
+|---|---|---|
+| 1 Live-Scout | Twitch Helix, авторизованный IRC-бот, всплески чата, кольцевой буфер 5-сек сегментов | Kick/YouTube Live: пока только записанный контент |
+| 2 Detect | faster-whisper с таймкодами, LLM via OpenRouter, score 6+, окно 15–45 с | Требуются модель, ресурсы и ключи |
+| 3 Edit | OpenShorts REST, 9:16, субтитры, хук | Нужно развернуть OpenShorts отдельно; качество требует ручной QA |
+| 4 Package/Filter | анализ речи/кадров/OCR/AcoustID, отклонение подозрительных клипов | Не доказывает отсутствие лицензированной музыки; неподтверждённые сигналы только на ручную проверку |
+| 5 Approve | Telegram owner-only webhook и кнопки, или защищённый FastAPI | Нужны токены и реальный просмотр владельцем |
+| 6 Publish | Upload-Post REST, account quotas, idempotency, reconciliation | Не включается без ключей/профилей/настройки |
+| 7 Track | Upload-Post per-post analytics, таблицы metrics/payouts, ввод подтверждённых выплат | Зависит от предоставленных платформой метрик и правил программы |
+| 8 Learn | еженедельный отчёт и рекомендация, минимум 100 наблюдений для анализа | Промпты/затраты не меняет без явного одобрения |
+
+### Запуск инфраструктуры
 
 ```sh
 cp .env.example .env
-# Set a strong ADMIN_TOKEN and POSTGRES_PASSWORD.
+# Set strong ADMIN_TOKEN and POSTGRES_PASSWORD and matching DB credentials.
 docker compose up --build -d
 curl http://localhost:8080/health
 ```
 
-API documentation: http://localhost:8080/docs. The OpenShorts backend must be launched **separately** per [its Docker guide](https://github.com/mutonby/openshorts#5-gpu-acceleration-optional-nvidia), reachable at `OPENSHORTS_API_URL` (on Linux use a reachable host address). OpenShorts needs its own AI configuration / keys. For hosted OpenShorts supply `OPENSHORTS_API_KEY`. Do not expose port 8080 publicly without TLS, gateway authentication and rate limiting.
+API Docs: **http://localhost:8080/docs**. Админ-запросы: `Authorization: Bearer <ADMIN_TOKEN>`.
 
-### Authorized test flow
+Запусти OpenShorts **отдельно** из `mutonby/openshorts`: `docker compose up --build -d`, настрой Gemini или LLM. `OPENSHORTS_API_URL` должен быть доступен контейнеру ClipRush; для Docker на Linux есть `host.docker.internal:host-gateway`.
 
-1. Register an authorized/verified clipping program using `POST /programs` with `rights_confirmed: true` and `enabled: true`. Record the actual rules and permissions; our checkbox is **not** proof of rights.
-2. `POST /recordings` with `program_id`, a public authorized video `source_url` and a unique `external_id`. Processing runs in a worker.
-3. OpenShorts calls `POST /hooks/openshorts` with HMAC signature when processing completes. The public `PUBLIC_BASE_URL` must be reachable from OpenShorts; alternatively call `POST /jobs/{id}/sync` to poll its status.
-4. `GET /clips`; review each candidate using `POST /clips/{id}/review`, specifying `decision: approve` or `reject`, `safety_checked`, and a reason if rejecting. **Do not approve until gambling, licensed music, PII, violence and program rules have been checked manually.**
-5. Publishing is disabled until `ENABLE_PUBLISH=true`. Even then it requires a separate `POST /clips/{id}/publish` (and an Upload-Post/social account configured in OpenShorts). No scheduled or automatic publishing is present.
+Добавь в `.env` ключи: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_VISION_MODEL`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_BOT_NICK`, `TWITCH_BOT_OAUTH` (с префиксом `oauth:`), `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `TELEGRAM_WEBHOOK_SECRET`, `UPLOAD_POST_API_KEY`, `ACOUSTID_API_KEY` (опционально). Конфигурация в `.env.example`.
 
-For protected routes send `Authorization: Bearer YOUR_ADMIN_TOKEN`.
+### Подключение Telegram
 
-### API examples
+Публичный HTTPS reverse proxy должен безопасно проксировать `/hooks/telegram` и `/hooks/openshorts` на локальный `8080`. Установи `PUBLIC_BASE_URL=https://<your-domain>` и случайные секреты подписей.
 
 ```sh
-curl -X POST localhost:8080/programs -H 'Authorization: Bearer YOUR_ADMIN_TOKEN' -H 'Content-Type: application/json' \
-  -d '{"name":"authorized-demo","rights_confirmed":true,"enabled":true,"rules_url":"https://example.org/rules"}'
-curl -X POST localhost:8080/recordings -H 'Authorization: Bearer YOUR_ADMIN_TOKEN' -H 'Content-Type: application/json' \
-  -d '{"program_id":1,"external_id":"demo-001","source_url":"https://www.youtube.com/watch?v=VIDEO_ID"}'
+curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+  -d "url=https://<your-domain>/hooks/telegram" \
+  -d "secret_token=<TELEGRAM_WEBHOOK_SECRET>"
 ```
 
-## Limitations and safeguards
+Без доступного webhook OpenShorts результаты синхронизируются Celery beat каждые 3 минуты. Для Telegram webhook альтернативы long-polling нет.
 
-- The pipeline does **not** infer legal permission to repost. Verify program permissions and platform policies independently.
-- Submitted URLs are restricted to HTTPS and allowlisted hosts; OpenShorts performs its own downstream validation. Only connect trusted OpenShorts services.
-- Published status and platform post URLs are not reconciled yet: a successful publish request is recorded as `submitted`, not as confirmed publication.
-- No real video, GPU, Docker or platform integration test has been performed by this PR; CI runs Python-level tests only.
-- If OpenShorts completion webhook delivery fails, `/jobs/{id}/sync` is an authenticated recovery endpoint.
-- Telegram approval bot, Live-Scout, Detect, advanced moderation and tracking are planned for later phases; **this scaffold does not meet the full 7-week specification**.
+### Включение источника и аккаунтов
 
-## Tests
+Все действия требуют ручного подтверждения прав и действующих правил конкурса. Ниже демонстрация с **выдуманным** тестовым правилом, не реальный конкурс:
 
 ```sh
-pip install -r requirements.txt -r requirements-dev.txt
-pytest -q
+export API=http://localhost:8080
+export TOKEN='<ADMIN_TOKEN>'
+curl -X POST "$API/programs" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+ -d '{"name":"licensed-example","rules_url":"https://example.com/authorized-rules","rights_confirmed":true,"enabled":true,"currency":"USD","min_views":100000,"reward_cents":2500}'
+curl -X POST "$API/streamers" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+ -d '{"program_id":1,"platform":"twitch","channel":"authorizedchannel","enabled":true}'
+curl -X POST "$API/recordings" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+ -d '{"program_id":1,"external_id":"test-001","source_url":"https://www.youtube.com/watch?v=REPLACE_WITH_AUTHORIZED_SOURCE"}'
 ```
+
+Для публикации создай и подключи профиль **в Upload-Post**, затем зарегистрируй `POST /accounts` с `{"platform":"youtube","profile":"my-upload-post-profile","enabled":true}`. Проверяй `GET /clips` и видео, одобряй `POST /clips/{id}/review` с `{"decision":"approve","safety_checked":true}`. Лишь после интеграционных тестов установи `ENABLE_PUBLISH=true` и запроси `POST /clips/{id}/publish` с `{"account_ids":[1],"confirmation":"PUBLISH"}`.
+
+При `AUTO_PUBLISH_ON_APPROVAL=true` одобрение в Telegram ставит ролик в очередь **только** после ручной проверки и при `ENABLE_PUBLISH=true`.
+
+### Критические ограничения
+
+- **Нужны разрешения на репост** каждого источника, отдельные от доступа к просмотру эфира.
+- У проекта нет способа гарантировать 0 нарушений/страйков или соответствие правилам всех платформ. Vision/LLM/OCR/AcoustID не заменяют проверки прав на музыку.
+- API не выдаёт внешний доступ по умолчанию; только `127.0.0.1:8080`. Для публичных webhook настрой TLS, прокси, правила доступа и мониторинг.
+- Нельзя менять схему действующей БД только `create_all`: для production нужны миграции; сначала делай бэкап.
+- Прокрутка ClipRush поддерживает **Twitch** в live-режиме; Kick и YouTube Live ещё требуют коннекторов чата и совместимости.
+- Прогноз выплат рассчитан по вручную введённым ставкам, **не** подтверждает реальное право на выплату. Выплату подтверждает только владелец с доказательством.
+- При непредвиденной ошибке в публикации пометка `unknown` требует сверки с Upload-Post `request_id` — повторной отправки по таймауту нет.
+- Результаты OpenShorts с посторонних доменов не скачиваются (SSRF-защита); облачная выдача подписанных S3 URL пока требует отдельной разрешённой интеграции.
+- Нет подтверждённых испытаний 10–20 роликов/день, 30 минут SLA или реальных выплат. Нет фактического продакшен-деплоя.
+
+Тесты: `python -m pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q`.
+
+Дорожная карта/критерии фактической приёмки: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
