@@ -15,13 +15,30 @@ class OpenShorts:
             ),
         )
 
+    def _webhook_fields(self) -> dict:
+        if self.settings.public_base_url and self.settings.openshorts_webhook_secret:
+            return {
+                "webhook_url": self.settings.public_base_url.rstrip("/") + "/hooks/openshorts",
+                "webhook_secret": self.settings.openshorts_webhook_secret,
+            }
+        return {}
+
     def process(self, url: str) -> str:
-        body = {"url": url, "acknowledged": True, "auto_hook": True, "captions": True}
-        if self.settings.public_base_url:
-            body["webhook_url"] = self.settings.public_base_url.rstrip("/") + "/hooks/openshorts"
-            if self.settings.openshorts_webhook_secret:
-                body["webhook_secret"] = self.settings.openshorts_webhook_secret
+        body = {"url": url, "acknowledged": True, "auto_hook": True, "captions": True,
+                "clip_min_seconds": 15, "clip_max_seconds": 45, **self._webhook_fields()}
         response = self.client.post("/api/process", json=body)
+        response.raise_for_status()
+        return response.json()["job_id"]
+
+    def process_file(self, path: str) -> str:
+        data = {"acknowledged": "true", "auto_hook": "true", "captions": "true",
+                "clip_min_seconds": "15", "clip_max_seconds": "45",
+                **self._webhook_fields()}
+        with open(path, "rb") as file:
+            response = self.client.post(
+                "/api/process", data=data, files={"file": ("candidate.mp4", file, "video/mp4")},
+                timeout=300,
+            )
         response.raise_for_status()
         return response.json()["job_id"]
 
