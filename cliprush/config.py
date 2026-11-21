@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     telegram_owner_id: int = 0
     telegram_webhook_secret: str = ""
     discovery_chat_ids: str = ""
+    kick_webhooks_enabled: bool = False
+    youtube_api_key: str = ""
     twitch_client_id: str = ""
     twitch_client_secret: str = ""
     twitch_bot_nick: str = ""

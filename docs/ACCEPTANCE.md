@@ -31,7 +31,7 @@ Specification dated 22 November 2026; end-of-week-7 decision: **10 January 2027*
 
 ## Gaps / intentionally not represented as complete
 
-- Kick and YouTube Live chat ingest/recording are not implemented.
+- Kick signed-webhook/Redis and YouTube chat-polling adapters have been added but have **no real live integration testing**. The YouTube adapter currently requires a fresh live video ID for each broadcast.
 - Authorized Telegram channel discovery is implemented for channels where the bot is an admin; Whop API discovery is not connected.
 - No external guarantee of detecting licensed music. AcoustID is a heuristic.
 - Caption presets are reapplied per clip via OpenShorts /api/subtitle; varied framing and title templates still require additional integration / QA.

@@ -1,9 +1,4 @@
-"""Optional Twitch live scout.
-
-Watches approved Twitch streamers, records a 10-minute rolling buffer, detects
-chat spikes, waits 30 s after a spike and queues extracted windows for scoring.
-IRC support uses an authorized bot account. Other platforms use recording input.
-"""
+"""Authorized Twitch, Kick and YouTube live-scout integration."""
 import asyncio
 import logging
 import os
@@ -87,8 +82,9 @@ class Twitch:
 
 
 class RollingCapture:
-    def __init__(self, channel: str, streamer_id: int):
+    def __init__(self, channel: str, streamer_id: int, source_url: str | None = None):
         self.channel = channel
+        self.source_url = source_url or f"https://twitch.tv/{channel}"
         self.folder = Path(get_settings().data_dir) / "live" / str(streamer_id)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.streamlink: subprocess.Popen | None = None
@@ -96,7 +92,7 @@ class RollingCapture:
 
     def start(self):
         self.streamlink = subprocess.Popen(
-            ["streamlink", "--stdout", f"https://twitch.tv/{self.channel}", "best"],
+            ["streamlink", "--stdout", self.source_url, "best"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         self.ffmpeg = subprocess.Popen(
@@ -144,6 +140,56 @@ class RollingCapture:
             Path(list_path).unlink(missing_ok=True)
 
 
+async def emit_live_moment(streamer: Streamer, capture: RollingCapture, when: float):
+    """Persist one candidate after the post-spike buffer has been recorded."""
+    await asyncio.sleep(32)
+    path = await asyncio.to_thread(capture.extract, when)
+    if path is None:
+        return
+    key = f"{streamer.platform}-{streamer.id}-{int(when)}"
+    with SessionLocal() as db:
+        if db.scalar(select(Moment.id).where(Moment.streamer_id == streamer.id, Moment.event_key == key)):
+            return
+        moment = Moment(streamer_id=streamer.id, event_key=key,
+                        source_path=path, occurred_at=datetime.fromtimestamp(when, timezone.utc))
+        db.add(moment)
+        db.commit()
+        db.refresh(moment)
+        detect_moment_task.delay(moment.id)
+
+
+async def watch_kick_streamer(streamer: Streamer):
+    """Consume authenticated Kick webhook chat events from Redis."""
+    from redis.asyncio import Redis as AsyncRedis
+    capture = RollingCapture(streamer.channel, streamer.id,
+                             source_url=f"https://kick.com/{streamer.channel}")
+    detector = SpikeDetector()
+    pending: set[asyncio.Task] = set()
+    redis_client = AsyncRedis.from_url(get_settings().redis_url, decode_responses=True)
+    capture.start()
+    try:
+        last_id = "$"  # ignore event backlog from before video capture started
+        while True:
+            if capture.ffmpeg and capture.ffmpeg.poll() is not None:
+                return
+            if not await redis_client.exists("kick:live:" + streamer.channel):
+                return
+            entries = await redis_client.xread({"kick:chat:" + streamer.channel: last_id},
+                                               block=1000, count=100)
+            for _, messages in entries:
+                for stream_id, fields in messages:
+                    last_id = stream_id
+                    if detector.record(str(fields.get("content") or "")):
+                        task = asyncio.create_task(emit_live_moment(streamer, capture, time.time()))
+                        pending.add(task)
+                        task.add_done_callback(pending.discard)
+    finally:
+        for task in pending:
+            task.cancel()
+        await redis_client.aclose()
+        capture.stop()
+
+
 async def watch_streamer(streamer: Streamer):
     settings = get_settings()
     capture = RollingCapture(streamer.channel, streamer.id)
@@ -152,20 +198,7 @@ async def watch_streamer(streamer: Streamer):
     pending: set[asyncio.Task] = set()
 
     async def capture_spike(when: float):
-        await asyncio.sleep(32)
-        path = await asyncio.to_thread(capture.extract, when)
-        if path is None:
-            return
-        key = f"twitch-{streamer.id}-{int(when)}"
-        with SessionLocal() as db:
-            if db.scalar(select(Moment.id).where(Moment.streamer_id == streamer.id, Moment.event_key == key)):
-                return
-            moment = Moment(streamer_id=streamer.id, event_key=key,
-                            source_path=path, occurred_at=datetime.fromtimestamp(when, timezone.utc))
-            db.add(moment)
-            db.commit()
-            db.refresh(moment)
-            detect_moment_task.delay(moment.id)
+        await emit_live_moment(streamer, capture, when)
 
     try:
         while True:
@@ -190,41 +223,56 @@ async def watch_streamer(streamer: Streamer):
 
 
 async def main():
+    from redis.asyncio import Redis as AsyncRedis
+    from cliprush.youtube_live import YouTubeLive, watch_youtube_streamer
+
     init_db()
     cfg = get_settings()
-    if not all([cfg.twitch_client_id, cfg.twitch_client_secret, cfg.twitch_bot_oauth, cfg.twitch_bot_nick]):
-        log.warning("Twitch scout inactive: configure TWITCH_CLIENT_ID/SECRET/BOT_NICK/BOT_OAUTH")
-        await asyncio.Event().wait()
-        return
-    twitch = Twitch()
+    twitch_ready = all([cfg.twitch_client_id, cfg.twitch_client_secret,
+                        cfg.twitch_bot_oauth, cfg.twitch_bot_nick])
+    twitch = Twitch() if twitch_ready else None
+    youtube = YouTubeLive() if cfg.youtube_api_key else None
+    redis_client = AsyncRedis.from_url(cfg.redis_url, decode_responses=True)
     watches: dict[int, asyncio.Task] = {}
     while True:
         try:
             with SessionLocal() as db:
-                streamers = db.scalars(select(Streamer).where(
-                    Streamer.enabled.is_(True), Streamer.platform == "twitch"
-                )).all()
-                active = [(x.id, x.program_id, x.channel) for x in streamers]
+                streamers = db.scalars(select(Streamer).where(Streamer.enabled.is_(True))).all()
+                active = [(x.id, x.program_id, x.channel, x.platform) for x in streamers]
                 enabled_programs = {x.id for x in db.scalars(select(Program).where(
                     Program.enabled.is_(True), Program.rights_confirmed.is_(True)))}
             active_ids = set()
-            for sid, program_id, channel in active:
+            for sid, program_id, channel, platform in active:
                 if program_id not in enabled_programs:
                     continue
-                live = await asyncio.to_thread(twitch.is_live, channel)
-                if live:
+                chat_id = None
+                if platform == "twitch" and twitch:
+                    is_live = await asyncio.to_thread(twitch.is_live, channel)
+                elif platform == "youtube" and youtube:
+                    chat_id = await asyncio.to_thread(youtube.active_chat_id, channel)
+                    is_live = bool(chat_id)
+                elif platform == "kick" and cfg.kick_webhooks_enabled:
+                    is_live = bool(await redis_client.exists("kick:live:" + channel))
+                else:
+                    continue
+                if is_live:
                     active_ids.add(sid)
                     if sid not in watches or watches[sid].done():
-                        watches[sid] = asyncio.create_task(watch_streamer(
-                            Streamer(id=sid, program_id=program_id, channel=channel, platform="twitch")))
+                        streamer = Streamer(id=sid, program_id=program_id,
+                                            channel=channel, platform=platform)
+                        if platform == "twitch":
+                            watches[sid] = asyncio.create_task(watch_streamer(streamer))
+                        elif platform == "kick":
+                            watches[sid] = asyncio.create_task(watch_kick_streamer(streamer))
+                        else:
+                            watches[sid] = asyncio.create_task(watch_youtube_streamer(streamer, chat_id))
             for sid, task in list(watches.items()):
                 if sid not in active_ids:
                     task.cancel()
                     watches.pop(sid)
         except Exception:
-            log.exception("Scout poll failed")
+            log.exception("Scout polling failed; will retry")
         await asyncio.sleep(max(30, cfg.scout_interval_seconds))
-
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

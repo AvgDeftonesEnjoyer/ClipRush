@@ -172,6 +172,8 @@ def readiness():
                 "admin_token": len(cfg.admin_token) < 16,
                 "openshorts_webhook": not (cfg.public_base_url and cfg.openshorts_webhook_secret),
                 "telegram": not (cfg.telegram_bot_token and cfg.telegram_owner_id and cfg.telegram_webhook_secret),
+                "kick": not cfg.kick_webhooks_enabled,
+                "youtube": not cfg.youtube_api_key,
                 "twitch": not all([cfg.twitch_client_id, cfg.twitch_client_secret,
                                    cfg.twitch_bot_oauth, cfg.twitch_bot_nick]),
                 "detection_llm": not (cfg.openrouter_api_key and cfg.openrouter_model),
@@ -224,6 +226,10 @@ def create_streamer(body: StreamerIn, db: Session = Depends(db_session)):
         raise HTTPException(403, "Activate an authorized program first")
     if body.platform == "twitch" and not re.fullmatch(r"[A-Za-z0-9_]{3,25}", body.channel):
         raise HTTPException(422, "Invalid Twitch channel name")
+    if body.platform == "kick" and not re.fullmatch(r"[A-Za-z0-9_-]{3,80}", body.channel):
+        raise HTTPException(422, "Invalid Kick slug")
+    if body.platform == "youtube" and not re.fullmatch(r"[A-Za-z0-9_-]{11}", body.channel):
+        raise HTTPException(422, "YouTube stream source must be an 11-character video ID")
     streamer = Streamer(**body.model_dump())
     db.add(streamer)
     try:
@@ -352,6 +358,30 @@ async def openshorts_hook(request: Request, db: Session = Depends(db_session),
     if count:
         prepare_clips_task.delay(record.id)
     return {"ok": True, "new_clips": count}
+
+
+@app.post("/hooks/kick")
+async def kick_hook(request: Request, db: Session = Depends(db_session)):
+    from cliprush.kick import verify_kick_signature, handle_kick_event
+    if not get_settings().kick_webhooks_enabled:
+        raise HTTPException(503, "Kick integration not configured")
+    raw = await request.body()
+    if len(raw) > 100_000:
+        raise HTTPException(413, "Event too large")
+    try:
+        await __import__("asyncio").to_thread(verify_kick_signature, raw, request.headers)
+    except ValueError:
+        raise HTTPException(401, "Invalid Kick signature or replay timestamp")
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        raise HTTPException(400, "Invalid JSON")
+    if not isinstance(event, dict):
+        raise HTTPException(400, "Invalid event payload")
+    try:
+        return handle_kick_event(db, event, request.headers)
+    except ValueError as error:
+        raise HTTPException(422, str(error))
 
 
 @app.post("/hooks/telegram")

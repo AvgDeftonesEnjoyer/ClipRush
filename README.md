@@ -1,6 +1,6 @@
 # ClipRush
 
-**ClipRush** — конвейер для подготовки и публикации клипов из **разрешённых** стримов через [OpenShorts](https://github.com/mutonby/openshorts) и [Upload-Post](https://docs.upload-post.com/api/upload-video/). Python/FastAPI, Celery/Redis, PostgreSQL, Twitch + Whisper + LLM, Telegram-бот, учёт просмотров и выплат.
+**ClipRush** — конвейер для подготовки и публикации клипов из **разрешённых** стримов через [OpenShorts](https://github.com/mutonby/openshorts) и [Upload-Post](https://docs.upload-post.com/api/upload-video/). Python/FastAPI, Celery/Redis, PostgreSQL, Twitch/Kick/YouTube Live + Whisper + LLM, Telegram-бот, учёт просмотров и выплат.
 
 **Состояние:** программная реализация основных модулей находится в Draft PR. Деплой, реальные OAuth-подключения и интеграционные проверки на GPU, эфирах и платформах не выполнены. Нельзя считать это готовой автономной системой с доказанными KPI. По умолчанию **публикация отключена**.
 
@@ -8,7 +8,7 @@
 
 | Этап | Реализованная точка интеграции | Ограничение |
 |---|---|---|
-| 1 Live-Scout | Twitch Helix, авторизованный IRC-бот, всплески чата, кольцевой буфер 5-сек сегментов | Kick/YouTube Live: пока только записанный контент |
+| 1 Live-Scout | Twitch Helix+IRC; Kick подписанные webhooks и Redis; YouTube liveChatMessages; всплески чата и кольцевой буфер сегментов | Для Kick нужен app webhook/subscription, для YouTube — API key и 11-символьный ID текущего эфира |
 | 2 Detect | faster-whisper с таймкодами, LLM via OpenRouter, score 6+, окно 15–45 с | Требуются модель, ресурсы и ключи |
 | 3 Edit | OpenShorts REST, 9:16, субтитры, хук и 6 реально применяемых пресетов OpenShorts | Нужно развернуть OpenShorts отдельно; качество требует ручной QA |
 | 4 Package/Filter | анализ речи/кадров/OCR/AcoustID, отклонение подозрительных клипов | Не доказывает отсутствие лицензированной музыки; неподтверждённые сигналы только на ручную проверку |
@@ -31,6 +31,14 @@ API Docs: **http://localhost:8080/docs**. Админ-запросы: `Authorizat
 Запусти OpenShorts **отдельно** из `mutonby/openshorts`: `docker compose up --build -d`, настрой Gemini или LLM. `OPENSHORTS_API_URL` должен быть доступен контейнеру ClipRush; для Docker на Linux есть `host.docker.internal:host-gateway`.
 
 Добавь в `.env` ключи: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_VISION_MODEL`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_BOT_NICK`, `TWITCH_BOT_OAUTH` (с префиксом `oauth:`), `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_ID`, `TELEGRAM_WEBHOOK_SECRET`, `UPLOAD_POST_API_KEY`, `ACOUSTID_API_KEY` (опционально). Конфигурация в `.env.example`.
+
+### Kick и YouTube Live
+
+**Kick:** создай Kick Developer App, включи публичный HTTPS webhook \`https://<domain>/hooks/kick\` в настройках приложения, настрой официальный app token и подпишись на \`chat.message.sent\` и \`livestream.status.updated\` для **разрешённых** \`broadcaster_user_id\`. После этого поставь \`KICK_WEBHOOKS_ENABLED=true\`, добавь стримера с \`platform=kick\`, \`channel=<kick-slug>\`. Сервер проверяет RSA-подпись, timestamp и ID сообщений и принимает сигналы только из зарегистрированных разрешённых программ. Если callback не приходит, запись не стартует.
+
+**YouTube:** создай API key с доступом к YouTube Data API v3 и положи его в \`YOUTUBE_API_KEY\`. Зарегистрируй стрим с \`platform=youtube\`, \`channel=<11-char-video-id>\` (именно идентификатор текущего live-видео, не @handle). Поллинг использует \`videos.list\` и \`liveChatMessages.list\` с учётом \`pollingIntervalMillis\`; разрешённые записи читает Streamlink. При смене live video ID потребуется обновить запись стримера. API quota и права доступа зависят от Google-проекта.
+
+Официальные источники: [Kick webhooks](https://github.com/KickEngineering/KickDevDocs/blob/main/events/webhook-security.md), [Kick event types](https://github.com/KickEngineering/KickDevDocs/blob/main/events/event-types.md), [YouTube Live chat](https://developers.google.com/youtube/data/live/streaming-live-chat), [Streamlink plugins](https://streamlink.github.io/plugins.html).
 
 ### Подключение Telegram
 
@@ -79,7 +87,7 @@ curl -X POST "$API/recordings" -H "Authorization: Bearer $TOKEN" -H "Content-Typ
 - У проекта нет способа гарантировать 0 нарушений/страйков или соответствие правилам всех платформ. Vision/LLM/OCR/AcoustID не заменяют проверки прав на музыку.
 - API не выдаёт внешний доступ по умолчанию; только `127.0.0.1:8080`. Для публичных webhook настрой TLS, прокси, правила доступа и мониторинг.
 - Нельзя менять схему действующей БД только `create_all`: для production нужны миграции; сначала делай бэкап.
-- Прокрутка ClipRush поддерживает **Twitch** в live-режиме; Kick и YouTube Live ещё требуют коннекторов чата и совместимости.
+- Live-адаптеры **Twitch, Kick и YouTube** есть в коде, но на реальных авторизованных эфирах Kick/YouTube не тестировались; нужны подписки Kick или YouTube API key, а также разрешение на запись и репост.
 - Прогноз выплат рассчитан по вручную введённым ставкам, **не** подтверждает реальное право на выплату. Выплату подтверждает только владелец с доказательством.
 - При непредвиденной ошибке в публикации пометка `unknown` требует сверки с Upload-Post `request_id` — повторной отправки по таймауту нет.
 - Результаты OpenShorts с посторонних доменов не скачиваются (SSRF-защита); облачная выдача подписанных S3 URL пока требует отдельной разрешённой интеграции.
