@@ -75,3 +75,7 @@ No guarantee of licensed-music clearance, zero strikes, delivery under 30 minute
 The weekly `storage_retention` job deletes old temporary clips only after their review is rejected/blocked or all corresponding posting jobs have reached a terminal state. It also cleans abandoned frame folders and finalized source windows. Default `MEDIA_RETENTION_DAYS=14` (minimum seven days). **Database backups do not contain the media volume.** To preserve raw streams and published clip files longer, back up the `clips` volume independently or increase the retention setting.
 
 Every 30 minutes `ops_alerts` checks unknown recordings/uploads, failed safety scans and paused social accounts; it notifies the configured Telegram owner with a one-hour Redis deduplication window. Alerts only notify; they never retry uploads.
+
+## 8. Upload-Post delivery vs public publication
+
+A provider `completed` response can mean a video was delivered to a platform draft queue. The database uses `delivered` until a public URL, a platform post ID, or verified per-post analytics become available. It then transitions to `published` and starts the 72-hour analytics clock. A `delivered` upload must never be resubmitted merely because analytics are delayed. Review TikTok drafts manually in the connected creator account.

@@ -30,7 +30,7 @@ def quota_error(db: Session, account: Account, urgent: bool = False) -> str | No
     recent = list(db.scalars(select(Post).where(
         Post.account_id == account.id,
         attempted_at >= current - timedelta(hours=24),
-        Post.status.in_(["preparing", "sending", "submitted", "published", "unknown"]),
+        Post.status.in_(["preparing", "sending", "submitted", "delivered", "published", "unknown"]),
     ).order_by(attempted_at.desc())))
     new = (current - utc(account.created_at)) < timedelta(days=7)
     limit = cfg.max_post_day_new if new else cfg.max_post_day_established
@@ -216,10 +216,17 @@ def reconcile(db: Session, post: Post, result: dict) -> str:
             post.status = "failed"
             post.error = str(matched.get("error") or matched.get("message") or "Platform error")[:500]
         else:
-            post.status = "published"
             post.post_url = str(matched.get("url") or matched.get("post_url") or "")
             post.platform_post_id = str(matched.get("post_id") or matched.get("platform_post_id") or "") or None
-            post.published_at = post.published_at or now()
+            if post.post_url or post.platform_post_id:
+                post.status = "published"
+                post.published_at = post.published_at or now()
+                post.error = ""
+            else:
+                # Async provider success does not prove a public post exists.
+                # TikTok in particular can deliver a draft rather than publish it.
+                post.status = "delivered"
+                post.error = "Provider accepted upload; awaiting public post confirmation"
     elif state == "failed":
         post.status = "failed"
         post.error = str(result.get("message") or "Upload failed")[:500]

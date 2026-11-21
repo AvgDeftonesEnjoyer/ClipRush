@@ -264,7 +264,7 @@ def collect_metrics_task():
     from cliprush.tracking import fetch_post_metrics, record_metric
     with SessionLocal() as db:
         posts = list(db.scalars(select(Post).where(
-            Post.status == "published", or_(Post.request_id.is_not(None), Post.platform_post_id.is_not(None))
+            Post.status.in_(("published", "delivered")), or_(Post.request_id.is_not(None), Post.platform_post_id.is_not(None))
         ).limit(200)))
         for post in posts:
             try:

@@ -75,6 +75,10 @@ def record_metric(db: Session, post: Post, payload: dict) -> Metric:
         post.platform_post_id = str(provider["platform_post_id"])[:160]
     if provider.get("post_url"):
         post.post_url = str(provider["post_url"])[:2000]
+    if post.status == "delivered":
+        post.status = "published"
+        post.published_at = post.published_at or now()
+        post.error = ""
     point = Metric(post_id=post.id, **values)
     db.add(point)
     db.commit()
