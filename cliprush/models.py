@@ -200,3 +200,15 @@ class RuntimeControl(Base):
     paused: Mapped[bool] = mapped_column(Boolean, default=False)
     reason: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class AuditEvent(Base):
+    """Immutable record of owner actions; never store API keys in details."""
+    __tablename__ = "audit_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor: Mapped[str] = mapped_column(String(32))
+    action: Mapped[str] = mapped_column(String(80))
+    target_type: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[int | None] = mapped_column(Integer)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)

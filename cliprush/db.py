@@ -12,7 +12,7 @@ class Base(DeclarativeBase):
 engine = create_engine(get_settings().database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
-SCHEMA_VERSION = "20261122_02"
+SCHEMA_VERSION = "20261122_03"
 
 
 def init_db() -> None:

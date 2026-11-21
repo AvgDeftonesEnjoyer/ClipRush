@@ -53,6 +53,23 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_started
+  backup:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: cliprush
+      PGDATABASE: cliprush
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - backups:/backups
+      - ./ops/backup.sh:/opt/cliprush-backup.sh:ro
+    command: ["sh", "/opt/cliprush-backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -72,3 +89,4 @@ services:
 volumes:
   pgdata:
   clips:
+  backups:

@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
 from cliprush.logic import ALLOWED_PLATFORMS, apply_completed_job, valid_webhook, validate_source_url
 from cliprush.models import (
-    Account, Clip, Expense, Metric, Payout, Post, Program, ProgramCandidate, PromptVersion, Recording, Streamer, WeeklyReport, now,
+    Account, AuditEvent, Clip, Expense, Metric, Moment, Payout, Post, Program, ProgramCandidate, PromptVersion, Recording, Streamer, WeeklyReport, now,
 )
 from cliprush.tasks import (
     dispatch_post_task, prepare_clips_task, scan_clip_task, submit_recording,
@@ -138,6 +138,28 @@ def retry_style(clip_id: int, db: Session = Depends(db_session)):
     db.commit()
     prepare_clips_task.delay(clip.recording_id)
     return {"id": clip.id, "status": "needs_review", "queued_for": "restyle"}
+
+
+@app.get("/ops/stats", dependencies=[Depends(admin)])
+def operational_stats(db: Session = Depends(db_session)):
+    def histogram(model, field):
+        return {str(status): count for status, count in
+                db.execute(select(field, func.count(model.id)).group_by(field)).all()}
+    return {
+        "recordings": histogram(Recording, Recording.status),
+        "moments": histogram(Moment, Moment.status),
+        "clips": histogram(Clip, Clip.status),
+        "posts": histogram(Post, Post.status),
+        "publishing_env_enabled": get_settings().enable_publish,
+    }
+
+
+@app.get("/ops/audit", dependencies=[Depends(admin)])
+def audit_history(db: Session = Depends(db_session)):
+    events = db.scalars(select(AuditEvent).order_by(AuditEvent.id.desc()).limit(200))
+    return [{"id": e.id, "at": e.created_at.isoformat(),
+             "actor": e.actor, "action": e.action, "target_type": e.target_type,
+             "target_id": e.target_id, "details": e.details} for e in events]
 
 
 @app.get("/ops/stuck", dependencies=[Depends(admin)])
