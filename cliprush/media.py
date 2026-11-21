@@ -92,3 +92,21 @@ def fetch_clip(video_url: str, clip_id: int) -> str:
         return str(dest)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def visual_fingerprint(path: str) -> str:
+    """A coarse multi-frame fingerprint for duplicate review (not copyright proof)."""
+    import hashlib
+    try:
+        raw = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+             "-i", path, "-vf", "fps=1/5,scale=16:16,format=gray",
+             "-frames:v", "3", "-f", "rawvideo", "-"],
+            capture_output=True, check=True, timeout=80,
+        ).stdout
+        if len(raw) < 256:
+            raise ValueError("No video frames")
+        return hashlib.sha256(raw).hexdigest()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        with open(path, "rb") as source:
+            return hashlib.sha256(source.read(5 * 1024 * 1024)).hexdigest()

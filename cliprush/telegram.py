@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from cliprush.config import get_settings
 from cliprush.media import fetch_clip
-from cliprush.models import Clip, WeeklyReport
+from cliprush.models import Clip, Post, WeeklyReport
 from cliprush.publishing import queue_approved_clip
 
 log = logging.getLogger(__name__)
@@ -66,6 +66,12 @@ def send_clip(clip: Clip) -> None:
 
 def handle_update(db: Session, payload: dict) -> dict:
     cfg = get_settings()
+    from cliprush.discovery import ingest_telegram_post
+    if payload.get("channel_post"):
+        result = ingest_telegram_post(db, payload["channel_post"])
+        if result:
+            send_message(result)
+        return {"ok": True}
     callback = payload.get("callback_query")
     message = payload.get("message")
     event = callback or message or {}
@@ -117,7 +123,9 @@ def handle_update(db: Session, payload: dict) -> dict:
             bits = text.split(" ", 2)
             if len(bits) == 3 and bits[1].isdigit():
                 clip = db.get(Clip, int(bits[1]))
-                if clip and clip.status in ("needs_review", "approved", "rejected"):
+                if clip and clip.status in ("needs_review", "approved", "rejected") and not db.scalar(
+                    select(Post.id).where(Post.clip_id == clip.id)
+                ):
                     clip.title = bits[2][:150]
                     db.commit()
                     send_message(f"Clip #{clip.id}: title updated. Approve via buttons.")

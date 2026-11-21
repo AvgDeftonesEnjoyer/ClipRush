@@ -84,6 +84,7 @@ class Clip(Base):
     safety_checked: Mapped[bool] = mapped_column(Boolean, default=False)
     review_reason: Mapped[str] = mapped_column(Text, default="")
     style: Mapped[str] = mapped_column(String(40), default="classic")
+    fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
     publish_response: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     recording: Mapped[Recording] = relationship()
@@ -161,4 +162,15 @@ class WeeklyReport(Base):
     week_key: Mapped[str] = mapped_column(String(20), unique=True)
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ProgramCandidate(Base):
+    __tablename__ = "program_candidates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(40))
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    text: Mapped[str] = mapped_column(Text)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

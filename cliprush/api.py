@@ -16,7 +16,7 @@ from cliprush.config import get_settings
 from cliprush.db import SessionLocal, init_db
 from cliprush.logic import ALLOWED_PLATFORMS, apply_completed_job, valid_webhook, validate_source_url
 from cliprush.models import (
-    Account, Clip, Metric, Payout, Post, Program, Recording, Streamer, WeeklyReport, now,
+    Account, Clip, Metric, Payout, Post, Program, ProgramCandidate, Recording, Streamer, WeeklyReport, now,
 )
 from cliprush.tasks import (
     dispatch_post_task, scan_clip_task, submit_recording,
@@ -116,6 +116,27 @@ class ConfirmPayoutIn(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/candidates", dependencies=[Depends(admin)])
+def list_candidates(db: Session = Depends(db_session)):
+    return [{"id": c.id, "source": c.source, "source_url": c.source_url,
+             "text": c.text, "status": c.status} for c in db.scalars(
+            select(ProgramCandidate).order_by(ProgramCandidate.id.desc()).limit(100))]
+
+
+class CandidateDecision(BaseModel):
+    status: Literal["dismissed", "reviewed"]
+
+
+@app.post("/candidates/{candidate_id}/decision", dependencies=[Depends(admin)])
+def candidate_decision(candidate_id: int, body: CandidateDecision, db: Session = Depends(db_session)):
+    item = db.get(ProgramCandidate, candidate_id)
+    if item is None:
+        raise HTTPException(404, "Candidate not found")
+    item.status = body.status
+    db.commit()
+    return {"id": item.id, "status": item.status}
 
 
 @app.get("/readiness", dependencies=[Depends(admin)])

@@ -99,7 +99,7 @@ def detect_moment_task(moment_id: int):
 
 @celery_app.task(name="cliprush.scan_clip")
 def scan_clip_task(clip_id: int):
-    from cliprush.media import fetch_clip
+    from cliprush.media import fetch_clip, visual_fingerprint
     from cliprush.safety import inspect
     from cliprush.telegram import send_clip
     init_db()
@@ -109,7 +109,21 @@ def scan_clip_task(clip_id: int):
             return
         try:
             clip_path = fetch_clip(clip.video_url, clip.id)
+            fingerprint = visual_fingerprint(clip_path)
+            clip.fingerprint = fingerprint
+            duplicate = db.scalar(select(Clip).where(
+                Clip.fingerprint == fingerprint, Clip.id != clip.id
+            ).order_by(Clip.id))
+            if duplicate and duplicate.status in ("submitted", "published"):
+                clip.safety_status = "blocked"
+                clip.status = "blocked"
+                clip.safety_reasons = [f"Duplicate published clip #{duplicate.id}"]
+                db.commit()
+                return
             outcome = inspect(clip_path)
+            if duplicate:
+                outcome = type(outcome)(outcome.status,
+                    list(outcome.reasons) + [f"Possible duplicate of clip #{duplicate.id}: owner check required"])
             clip.safety_status = outcome.status
             clip.safety_reasons = outcome.reasons
             if outcome.status == "blocked":

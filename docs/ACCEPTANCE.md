@@ -32,7 +32,7 @@ Specification dated 22 November 2026; end-of-week-7 decision: **10 January 2027*
 ## Gaps / intentionally not represented as complete
 
 - Kick and YouTube Live chat ingest/recording are not implemented.
-- Program discovery from Whop and Telegram channels not automated.
+- Authorized Telegram channel discovery is implemented for channels where the bot is an admin; Whop API discovery is not connected.
 - No external guarantee of detecting licensed music. AcoustID is a heuristic.
 - The spec's automatic editing style rotation currently records a distinct style *label*; per-clip OpenShorts render styles are not reliably applied through an API.
 - Prompt A/B experiment scheduler and automatic retraining require verified outcome data and owner approvals.
