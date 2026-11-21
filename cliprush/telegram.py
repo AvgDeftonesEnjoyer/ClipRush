@@ -46,7 +46,7 @@ def send_clip(clip: Clip) -> None:
                f"Warnings: {', '.join(clip.safety_reasons)[:500]}\n"
                "Посмотри видео и проверь права, музыку, казино и личные данные.")
     keyboard = {"inline_keyboard": [[
-        {"text": "✅ Опубликовать", "callback_data": f"a:{clip.id}"},
+        {"text": "✅ Одобрить", "callback_data": f"a:{clip.id}"},
         {"text": "❌ Отклонить", "callback_data": f"r:{clip.id}"},
         {"text": "✏️ Заголовок", "callback_data": f"t:{clip.id}"},
     ]]}

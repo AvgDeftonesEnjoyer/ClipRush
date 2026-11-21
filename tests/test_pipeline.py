@@ -252,3 +252,22 @@ def test_authorized_telegram_discovery(monkeypatch, db):
     incoming["chat"]["id"] = -100123
     incoming["message_id"] = 12
     assert ingest_telegram_post(db, incoming) is None
+
+
+def test_duplicate_status_checks_dispatched_posts_not_clip_review_status(db):
+    from cliprush.logic import duplicate_status
+    _, recording, original, account = seed(db)
+    original.fingerprint = "fingerprint-example"
+    original.status = "approved"  # approval remains approved even after posts publish
+    alternate = Clip(recording_id=recording.id, clip_index=1, title="same video",
+                     fingerprint=original.fingerprint, safety_status="unknown")
+    db.add(alternate)
+    db.flush()
+    candidate, sent = duplicate_status(db, alternate.id, alternate.fingerprint)
+    assert candidate.id == original.id
+    assert sent is None
+    db.add(Post(clip_id=original.id, account_id=account.id,
+                idempotency_key="sent-once", status="published"))
+    db.commit()
+    candidate, sent = duplicate_status(db, alternate.id, alternate.fingerprint)
+    assert candidate.id == sent.id == original.id

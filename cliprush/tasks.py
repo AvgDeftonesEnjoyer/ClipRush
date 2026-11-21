@@ -157,13 +157,12 @@ def scan_clip_task(clip_id: int):
             clip_path = fetch_clip(clip.video_url, clip.id)
             fingerprint = visual_fingerprint(clip_path)
             clip.fingerprint = fingerprint
-            duplicate = db.scalar(select(Clip).where(
-                Clip.fingerprint == fingerprint, Clip.id != clip.id
-            ).order_by(Clip.id))
-            if duplicate and duplicate.status in ("submitted", "published"):
+            from cliprush.logic import duplicate_status
+            duplicate, dispatched_duplicate = duplicate_status(db, clip.id, fingerprint)
+            if dispatched_duplicate:
                 clip.safety_status = "blocked"
                 clip.status = "blocked"
-                clip.safety_reasons = [f"Duplicate published clip #{duplicate.id}"]
+                clip.safety_reasons = [f"Duplicate already dispatched clip #{dispatched_duplicate.id}"]
                 db.commit()
                 return
             outcome = inspect(clip_path)

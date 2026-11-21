@@ -65,3 +65,20 @@ def apply_completed_job(session: Session, recording: Recording, payload: dict) -
     recording.status = "completed"
     session.commit()
     return created
+
+
+def duplicate_status(session: Session, clip_id: int, fingerprint: str) -> tuple[Clip | None, Clip | None]:
+    """Return any duplicate and separately an already-dispatched duplicate.
+
+    Clip.status is an approval state; publication state lives on Post.
+    """
+    from cliprush.models import Post
+    candidate = session.scalar(select(Clip).where(
+        Clip.fingerprint == fingerprint, Clip.id != clip_id
+    ).order_by(Clip.id).limit(1))
+    dispatched = session.scalar(select(Clip).join(Post, Post.clip_id == Clip.id).where(
+        Clip.fingerprint == fingerprint,
+        Clip.id != clip_id,
+        Post.status.in_(("sending", "submitted", "unknown", "published")),
+    ).order_by(Clip.id).limit(1))
+    return candidate, dispatched

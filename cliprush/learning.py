@@ -37,7 +37,8 @@ def summarize(db: Session, *, at: datetime | None = None) -> dict:
             target = published_at + timedelta(hours=72)
             # Use the nearest available sample rather than assuming a missing 72h reading is 0.
             nearest = min(readings, key=lambda m: abs((utc(m.captured_at) - target).total_seconds()))
-            matured.append((post, nearest.views))
+            if abs((utc(nearest.captured_at) - target).total_seconds()) <= 12 * 3600:
+                matured.append((post, nearest.views))
     totals.sort(key=lambda entry: entry[1], reverse=True)
     matured.sort(key=lambda entry: entry[1], reverse=True)
 
