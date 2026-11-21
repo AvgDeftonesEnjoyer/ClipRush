@@ -378,6 +378,8 @@ def review(clip_id: int, body: ReviewIn, db: Session = Depends(db_session)):
         raise HTTPException(409, "Cannot change review after dispatch request")
     if clip.status == "blocked" or clip.safety_status == "blocked":
         raise HTTPException(409, "Automatic safety block requires investigation, not approval")
+    if body.decision == "approve" and clip.safety_status == "unknown" and not clip.safety_reasons:
+        raise HTTPException(409, "Safety scan is pending; review the preview after screening")
     if body.decision == "approve" and not body.safety_checked:
         raise HTTPException(422, "Owner must manually watch and verify clip")
     clip.status = "approved" if body.decision == "approve" else "rejected"

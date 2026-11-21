@@ -38,12 +38,17 @@ def frame_samples(source: str, every_seconds: int = 1, max_frames: int = 45) -> 
     root = Path(get_settings().data_dir) / "frames"
     root.mkdir(parents=True, exist_ok=True)
     folder = tempfile.mkdtemp(prefix="frames-", dir=root)
-    subprocess.run([
-        "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        "-i", source, "-vf", f"fps=1/{every_seconds}",
-        "-frames:v", str(max_frames), "-q:v", "7", str(Path(folder) / "%04d.jpg")
-    ], check=True, timeout=180)
-    return [str(x) for x in sorted(Path(folder).glob("*.jpg"))]
+    try:
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-i", source, "-vf", f"fps=1/{every_seconds}",
+            "-frames:v", str(max_frames), "-q:v", "7", str(Path(folder) / "%04d.jpg")
+        ], check=True, timeout=180)
+        return [str(x) for x in sorted(Path(folder).glob("*.jpg"))]
+    except Exception:
+        from shutil import rmtree
+        rmtree(folder, ignore_errors=True)
+        raise
 
 
 def upstream_url(video_url: str) -> str:
@@ -72,7 +77,11 @@ def fetch_clip(video_url: str, clip_id: int) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     headers = ({"Authorization": f"Bearer {settings.openshorts_api_key}"}
                if settings.openshorts_api_key else {})
-    tmp = dest.with_suffix(".part")
+    if dest.is_file() and 0 < dest.stat().st_size <= settings.max_download_bytes:
+        return str(dest)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"clip-{clip_id}-", suffix=".part", dir=dest.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
         with httpx.Client(timeout=120, follow_redirects=False) as client:
             with client.stream("GET", endpoint, headers=headers) as response:

@@ -194,6 +194,7 @@ async def main():
     cfg = get_settings()
     if not all([cfg.twitch_client_id, cfg.twitch_client_secret, cfg.twitch_bot_oauth, cfg.twitch_bot_nick]):
         log.warning("Twitch scout inactive: configure TWITCH_CLIENT_ID/SECRET/BOT_NICK/BOT_OAUTH")
+        await asyncio.Event().wait()
         return
     twitch = Twitch()
     watches: dict[int, asyncio.Task] = {}

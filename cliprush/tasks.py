@@ -181,7 +181,7 @@ def reconcile_posts_task():
     from cliprush.publishing import poll_status, reconcile
     with SessionLocal() as db:
         posts = list(db.scalars(select(Post).where(
-            Post.status.in_(["submitted", "unknown"])
+            Post.status.in_(["sending", "submitted", "unknown"])
         ).limit(50)))
         for post in posts:
             if not post.request_id:

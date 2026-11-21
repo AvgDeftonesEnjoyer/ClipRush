@@ -93,7 +93,7 @@ def handle_update(db: Session, payload: dict) -> dict:
             clip.review_reason = "Telegram owner rejected"
             db.commit()
             response = "Rejected"
-        elif action == "a" and clip.safety_status != "blocked":
+        elif action == "a" and clip.safety_status in ("review", "clear"):
             clip.status = "approved"
             clip.safety_checked = True
             clip.review_reason = "Owner watched and approved in Telegram"
