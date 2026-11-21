@@ -40,8 +40,11 @@ def activate(db: Session, version_id: int) -> PromptVersion:
         raise ValueError("Unknown or rejected prompt proposal")
     for item in list_versions(db):
         item.active = item.id == version_id
+    from cliprush.audit import audit
     candidate.approved = True
     candidate.active = True
+    audit(db, "owner", "prompt.activated", "prompt_version", candidate.id,
+          {"version": candidate.version})
     db.commit()
     db.refresh(candidate)
     return candidate
@@ -51,8 +54,11 @@ def reject(db: Session, version_id: int) -> PromptVersion:
     candidate = db.get(PromptVersion, version_id)
     if not candidate or candidate.module != "detect" or candidate.active:
         raise ValueError("Unknown or active prompt proposal")
+    from cliprush.audit import audit
     candidate.rejected = True
     candidate.approved = False
+    audit(db, "owner", "prompt.rejected", "prompt_version", candidate.id,
+          {"version": candidate.version})
     db.commit()
     return candidate
 

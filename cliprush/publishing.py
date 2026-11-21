@@ -74,6 +74,9 @@ def queue_approved_clip(db: Session, clip: Clip, account_ids: list[int] | None =
         db.add(post)
         db.flush()
         ids.append(post.id)
+    from cliprush.audit import audit
+    audit(db, "owner_api", "clip.dispatch_requested", "clip", clip.id,
+          {"accounts": ",".join(str(a.id) for a in accounts)})
     db.commit()
     return ids
 

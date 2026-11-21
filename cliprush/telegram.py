@@ -121,14 +121,18 @@ def handle_update(db: Session, payload: dict) -> dict:
         elif already_dispatched:
             response = "Post already queued; pause the social account, do not reuse review buttons"
         elif action == "r":
+            from cliprush.audit import audit
             clip.status = "rejected"
             clip.review_reason = "Telegram owner rejected"
+            audit(db, "telegram_owner", "clip.rejected", "clip", clip.id)
             db.commit()
             response = "Rejected"
         elif action == "a" and clip.safety_status in ("review", "clear"):
             clip.status = "approved"
             clip.safety_checked = True
+            from cliprush.audit import audit
             clip.review_reason = "Owner watched and approved in Telegram"
+            audit(db, "telegram_owner", "clip.approved", "clip", clip.id)
             db.commit()
             response = "Approved for manual publishing"
             if cfg.enable_publish and cfg.auto_publish_on_approval:

@@ -20,7 +20,10 @@ def set_publishing_pause(db: Session, paused: bool, reason: str = "") -> Runtime
         setting = RuntimeControl(key=PAUSE_KEY)
         db.add(setting)
     setting.paused = paused
+    from cliprush.audit import audit
     setting.reason = (reason or "")[:500]
+    audit(db, "owner_api", "publishing.pause_changed", "runtime_control", None,
+          {"paused": paused, "reason": setting.reason})
     db.commit()
     db.refresh(setting)
     return setting

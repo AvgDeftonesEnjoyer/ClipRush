@@ -1,5 +1,8 @@
 """ClipRush owner API and signed provider webhooks."""
 import asyncio
+import logging
+import time
+import uuid
 import hmac
 import json
 import re
@@ -32,7 +35,28 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ClipRush", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="ClipRush", version="0.3.0", lifespan=lifespan)
+http_log = logging.getLogger("cliprush.http")
+
+
+@app.middleware("http")
+async def request_log(request: Request, call_next):
+    """Request tracing without logging Authorization headers or webhook bodies."""
+    supplied = request.headers.get("X-Request-ID", "")
+    rid = supplied if re.fullmatch(r"[A-Za-z0-9-]{8,64}", supplied) else uuid.uuid4().hex
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        http_log.exception("request_failed rid=%s method=%s path=%s elapsed_ms=%d",
+                           rid, request.method, request.url.path,
+                           int((time.perf_counter() - start) * 1000))
+        raise
+    response.headers["X-Request-ID"] = rid
+    http_log.info("request rid=%s method=%s path=%s status=%d elapsed_ms=%d",
+                  rid, request.method, request.url.path, response.status_code,
+                  int((time.perf_counter() - start) * 1000))
+    return response
 
 
 def db_session():
@@ -104,9 +128,11 @@ def attach_upstream(recording_id: int, body: AttachUpstreamIn, db: Session = Dep
         raise HTTPException(409, "Only unmatched unknown recordings can be reconciled")
     if db.scalar(select(Recording.id).where(Recording.openshorts_job_id == body.job_id)):
         raise HTTPException(409, "Upstream job ID already belongs to another recording")
+    from cliprush.audit import audit
     record.openshorts_job_id = body.job_id
     record.status = "processing"
     record.error = None
+    audit(db, "owner_api", "recording.upstream_attached", "recording", record.id)
     db.commit()
     return {"id": record.id, "status": record.status, "upstream_job_id": body.job_id}
 
@@ -233,8 +259,12 @@ class ExpenseIn(BaseModel):
 
 @app.post("/expenses", dependencies=[Depends(admin)])
 def record_expense(body: ExpenseIn, db: Session = Depends(db_session)):
+    from cliprush.audit import audit
     entry = Expense(**body.model_dump())
     db.add(entry)
+    db.flush()
+    audit(db, "owner_api", "expense.recorded", "expense", entry.id,
+          {"vendor": entry.vendor, "amount_cents": entry.amount_cents})
     db.commit()
     db.refresh(entry)
     return {"id": entry.id, "amount_cents": entry.amount_cents}
@@ -386,8 +416,11 @@ def activate_program(program_id: int, body: ProgramToggle, db: Session = Depends
         raise HTTPException(404, "Unknown program")
     if body.enabled and (not body.rights_confirmed or not program.rules_url):
         raise HTTPException(400, "Enable only after verifying permissions and rules")
+    from cliprush.audit import audit
     program.enabled = body.enabled
     program.rights_confirmed = body.rights_confirmed
+    audit(db, "owner_api", "program.activation", "program", program.id,
+          {"enabled": program.enabled, "rights_confirmed": program.rights_confirmed})
     db.commit()
     return {"id": program.id, "enabled": program.enabled}
 
@@ -450,8 +483,11 @@ def pause_account(account_id: int, body: AccountPause, db: Session = Depends(db_
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(404, "Account not found")
+    from cliprush.audit import audit
     account.paused = body.paused
     account.warning = body.warning[:500]
+    audit(db, "owner_api", "account.pause", "account", account.id,
+          {"paused": account.paused})
     db.commit()
     return {"id": account.id, "paused": account.paused}
 
@@ -627,7 +663,10 @@ def review(clip_id: int, body: ReviewIn, db: Session = Depends(db_session)):
         raise HTTPException(422, "Owner must manually watch and verify clip")
     clip.status = "approved" if body.decision == "approve" else "rejected"
     clip.safety_checked = body.decision == "approve" and body.safety_checked
+    from cliprush.audit import audit
     clip.review_reason = body.reason[:500]
+    audit(db, "owner_api", "clip.reviewed", "clip", clip.id,
+          {"decision": body.decision, "safety_checked": clip.safety_checked})
     db.commit()
     return {"id": clip.id, "status": clip.status}
 
@@ -685,7 +724,10 @@ def confirm_payout(payout_id: int, body: ConfirmPayoutIn, db: Session = Depends(
     payout.status = "confirmed"
     payout.amount_cents = body.amount_cents
     payout.evidence_url = body.evidence_url[:1000]
+    from cliprush.audit import audit
     payout.confirmed_at = now()
+    audit(db, "owner_api", "payout.confirmed", "payout", payout.id,
+          {"amount_cents": payout.amount_cents, "currency": payout.currency})
     db.commit()
     return {"id": payout.id, "status": payout.status}
 
