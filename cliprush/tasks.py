@@ -16,6 +16,8 @@ celery_app = Celery("cliprush", broker=get_settings().redis_url, backend=get_set
 celery_app.conf.beat_schedule = {
     "openshorts-sync": {"task": "cliprush.sync_jobs", "schedule": 180.0},
     "crash-recovery": {"task": "cliprush.recover_stale", "schedule": 300.0},
+    "ops-alerts": {"task": "cliprush.ops_alerts", "schedule": 1800.0},
+    "storage-retention": {"task": "cliprush.storage_retention", "schedule": crontab(hour=3, minute=15, day_of_week="sunday")},
     "post-dispatch": {"task": "cliprush.dispatch_pending", "schedule": 180.0},
     "post-reconcile": {"task": "cliprush.reconcile_posts", "schedule": 600.0},
     "post-metrics": {"task": "cliprush.collect_metrics", "schedule": 21600.0},
@@ -328,3 +330,19 @@ def recover_stale_task():
     if report["flagged_unknown"]:
         log.warning("Operator attention required: %s", report["flagged_unknown"][:30])
     return report
+
+
+@celery_app.task(name="cliprush.storage_retention")
+def storage_retention_task():
+    from cliprush.storage import cleanup
+    with SessionLocal() as db:
+        result = cleanup(db)
+    log.info("ClipRush media retention summary: %s", result)
+    return result
+
+
+@celery_app.task(name="cliprush.ops_alerts")
+def ops_alerts_task():
+    from cliprush.alerts import operational_alerts
+    with SessionLocal() as db:
+        return operational_alerts(db)

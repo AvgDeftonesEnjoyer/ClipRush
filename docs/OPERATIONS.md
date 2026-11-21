@@ -53,3 +53,9 @@ Audit trail: `GET /ops/audit` (owner edits and publishing-control actions). Stat
 ## 6. Deployment limitations
 
 No guarantee of licensed-music clearance, zero strikes, delivery under 30 minutes, or revenue without actual field tests. Set TLS, reverse proxy allowlists, rate limiting, Postgres backups, process monitoring and vendor billing alerts before enabling publishing.
+
+## 7. Media retention and owner alerts
+
+The weekly `storage_retention` job deletes old temporary clips only after their review is rejected/blocked or all corresponding posting jobs have reached a terminal state. It also cleans abandoned frame folders and finalized source windows. Default `MEDIA_RETENTION_DAYS=14` (minimum seven days). **Database backups do not contain the media volume.** To preserve raw streams and published clip files longer, back up the `clips` volume independently or increase the retention setting.
+
+Every 30 minutes `ops_alerts` checks unknown recordings/uploads, failed safety scans and paused social accounts; it notifies the configured Telegram owner with a one-hour Redis deduplication window. Alerts only notify; they never retry uploads.

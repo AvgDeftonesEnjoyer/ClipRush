@@ -101,4 +101,4 @@ curl -X POST "$API/recordings" -H "Authorization: Bearer $TOKEN" -H "Content-Typ
 
 Тесты: `python -m pip install -r requirements.txt -r requirements-dev.txt && python -m pytest -q`.
 
-Дорожная карта/критерии фактической приёмки: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).\n\nРуководство по миграциям, аварийному стопу, резервному копированию и инцидентам: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Дорожная карта/критерии фактической приёмки: [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).\n\nРуководство по миграциям, аварийному стопу, резервному копированию, журналу действий, очистке временного видео и инцидентам: [docs/OPERATIONS.md](docs/OPERATIONS.md).

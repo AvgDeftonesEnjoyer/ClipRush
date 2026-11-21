@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     upload_post_api_key: str = ""
     data_dir: str = "/data"
     recovery_stale_minutes: int = 45
+    media_retention_days: int = 14
     scout_interval_seconds: int = 60
     min_post_gap_seconds: int = 7200
     max_post_day_new: int = 2
