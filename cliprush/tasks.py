@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 celery_app = Celery("cliprush", broker=get_settings().redis_url, backend=get_settings().redis_url)
 celery_app.conf.beat_schedule = {
     "openshorts-sync": {"task": "cliprush.sync_jobs", "schedule": 180.0},
+    "crash-recovery": {"task": "cliprush.recover_stale", "schedule": 300.0},
     "post-dispatch": {"task": "cliprush.dispatch_pending", "schedule": 180.0},
     "post-reconcile": {"task": "cliprush.reconcile_posts", "schedule": 600.0},
     "post-metrics": {"task": "cliprush.collect_metrics", "schedule": 21600.0},
@@ -27,7 +28,7 @@ celery_app.conf.beat_schedule = {
 def submit_recording(recording_id: int):
     init_db()
     with SessionLocal() as db:
-        record = db.get(Recording, recording_id)
+        record = db.scalar(select(Recording).where(Recording.id == recording_id).with_for_update())
         if not record or record.openshorts_job_id or record.status != "queued":
             return
         from cliprush.budget import within_budget
@@ -40,6 +41,8 @@ def submit_recording(recording_id: int):
             record.status = "blocked"
             db.commit()
             return
+        record.status = "submitting"
+        db.commit()  # durable claim BEFORE any external network activity
         try:
             if record.local_path:
                 target = Path(record.local_path).resolve()
@@ -64,7 +67,7 @@ def detect_moment_task(moment_id: int):
     from cliprush.media import trim_video
     init_db()
     with SessionLocal() as db:
-        moment = db.get(Moment, moment_id)
+        moment = db.scalar(select(Moment).where(Moment.id == moment_id).with_for_update())
         if not moment or moment.status != "queued":
             return
         moment.status = "detecting"
@@ -160,9 +163,12 @@ def scan_clip_task(clip_id: int):
     from cliprush.telegram import send_clip
     init_db()
     with SessionLocal() as db:
-        clip = db.get(Clip, clip_id)
-        if not clip or clip.status in ("blocked", "rejected", "approved", "submitted", "published"):
+        clip = db.scalar(select(Clip).where(Clip.id == clip_id).with_for_update())
+        if not clip or clip.status not in ("needs_review", "scan_failed"):
             return
+        clip.status = "scanning"
+        clip.safety_status = "unknown"
+        db.commit()  # prevent duplicate scanners/Telegram previews
         try:
             clip_path = fetch_clip(clip.video_url, clip.id)
             clip.duration_seconds = ffprobe_seconds(clip_path)
@@ -190,6 +196,7 @@ def scan_clip_task(clip_id: int):
             if clip.status != "blocked":
                 send_clip(clip)
         except Exception as exc:
+            clip.status = "scan_failed"
             clip.safety_status = "unknown"
             clip.safety_reasons = ["Safety check unavailable: " + str(exc)[:150]]
             db.commit()
@@ -301,3 +308,21 @@ def payout_alerts_task():
                 db.commit()
             except Exception:
                 log.exception("Payout notice failed; will retry later")
+
+
+@celery_app.task(name="cliprush.recover_stale")
+def recover_stale_task():
+    """Never re-post after a timeout. Resume only read-only/pre-send tasks."""
+    from cliprush.recovery import recover
+    init_db()
+    with SessionLocal() as db:
+        report = recover(db)
+    for record_id in report["recordings"]:
+        submit_recording.delay(record_id)
+    for moment_id in report["moments"]:
+        detect_moment_task.delay(moment_id)
+    for recording_id in report["clips_to_prepare"]:
+        prepare_clips_task.delay(recording_id)
+    if report["flagged_unknown"]:
+        log.warning("Operator attention required: %s", report["flagged_unknown"][:30])
+    return report

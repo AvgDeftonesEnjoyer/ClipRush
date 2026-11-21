@@ -87,6 +87,74 @@ class RecordingIn(BaseModel):
     source_url: str
 
 
+class AttachUpstreamIn(BaseModel):
+    job_id: str = Field(pattern=r"^[A-Za-z0-9-]{1,64}$")
+    confirmation: Literal["VERIFIED_UPSTREAM_JOB"]
+
+
+@app.post("/jobs/{recording_id}/attach-upstream", dependencies=[Depends(admin)])
+def attach_upstream(recording_id: int, body: AttachUpstreamIn, db: Session = Depends(db_session)):
+    """Link an upstream job after uncertain network outcome; never auto-resubmit."""
+    record = db.get(Recording, recording_id)
+    if not record:
+        raise HTTPException(404, "Unknown recording")
+    if record.status != "unknown" or record.openshorts_job_id:
+        raise HTTPException(409, "Only unmatched unknown recordings can be reconciled")
+    if db.scalar(select(Recording.id).where(Recording.openshorts_job_id == body.job_id)):
+        raise HTTPException(409, "Upstream job ID already belongs to another recording")
+    record.openshorts_job_id = body.job_id
+    record.status = "processing"
+    record.error = None
+    db.commit()
+    return {"id": record.id, "status": record.status, "upstream_job_id": body.job_id}
+
+
+@app.post("/clips/{clip_id}/retry-safety", dependencies=[Depends(admin)])
+def retry_safety(clip_id: int, db: Session = Depends(db_session)):
+    """Explicit retry of a read-only failed safety scan. Never overrides a block."""
+    clip = db.get(Clip, clip_id)
+    if not clip:
+        raise HTTPException(404, "Unknown clip")
+    if (clip.status != "scan_failed" or clip.safety_status != "unknown"
+            or db.scalar(select(Post.id).where(Post.clip_id == clip_id))):
+        raise HTTPException(409, "Only failed, unpublished safety scans can be retried")
+    clip.status = "needs_review"
+    db.commit()
+    scan_clip_task.delay(clip_id)
+    return {"id": clip_id, "status": "needs_review", "queued_for": "safety_rescan"}
+
+
+@app.post("/clips/{clip_id}/retry-style", dependencies=[Depends(admin)])
+def retry_style(clip_id: int, db: Session = Depends(db_session)):
+    """Owner verified OpenShorts style outcome and requested a new render."""
+    clip = db.get(Clip, clip_id)
+    if not clip or clip.status != "style_failed" or db.scalar(select(Post.id).where(Post.clip_id == clip_id)):
+        raise HTTPException(409, "Only failed pre-publication styles can be retried")
+    clip.status = "needs_review"
+    clip.safety_status = "unknown"
+    clip.safety_reasons = []
+    db.commit()
+    prepare_clips_task.delay(clip.recording_id)
+    return {"id": clip.id, "status": "needs_review", "queued_for": "restyle"}
+
+
+@app.get("/ops/stuck", dependencies=[Depends(admin)])
+def stuck_jobs(db: Session = Depends(db_session)):
+    from cliprush.recovery import _stale_time
+    cutoff = _stale_time()
+    return {
+        "recordings": [{"id": r.id, "status": r.status, "error": r.error}
+          for r in db.scalars(select(Recording).where(
+              Recording.status.in_(("unknown", "failed", "submitting"))).limit(100))],
+        "clips": [{"id": c.id, "status": c.status, "reasons": c.safety_reasons}
+          for c in db.scalars(select(Clip).where(
+              Clip.status.in_(("style_failed", "scan_failed", "styling", "scanning"))).limit(100))],
+        "posts": [{"id": p.id, "status": p.status, "request_id": p.request_id}
+          for p in db.scalars(select(Post).where(
+              Post.status.in_(("unknown", "preparing", "sending"))).limit(100))],
+    }
+
+
 class ReviewIn(BaseModel):
     decision: Literal["approve", "reject"]
     safety_checked: bool = False
